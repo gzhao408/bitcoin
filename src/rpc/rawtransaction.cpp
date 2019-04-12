@@ -841,7 +841,6 @@ static UniValue sendrawtransaction(const JSONRPCRequest& request)
     std::string err_string;
     AssertLockNotHeld(cs_main);
     NodeContext& node = EnsureNodeContext(request.context);
-
     const TransactionError err = BroadcastTransaction(node, tx, err_string, max_raw_tx_fee, /*relay*/ true, /*wait_callback*/ true);
     if (TransactionError::OK != err) {
         throw JSONRPCTransactionError(err, err_string);
@@ -925,7 +924,7 @@ static UniValue testmempoolaccept(const JSONRPCRequest& request)
     {
         LOCK(cs_main);
         test_accept_res = AcceptToMemoryPool(mempool, state, std::move(tx),
-            nullptr /* plTxnReplaced */, false /* bypass_limits */, max_raw_tx_fee, /* test_accept */ true, &fee);
+            nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true, &fee);
     }
 
     // Check that fee does not exceed maxfee

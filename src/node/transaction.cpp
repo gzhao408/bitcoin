@@ -40,7 +40,7 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
         TxValidationState state;
         CAmount fee;
         bool test_accepted = AcceptToMemoryPool(*node.mempool, state, std::move(tx),
-                nullptr /* plTxnReplaced */, false /* bypass_limits */, max_tx_fee, /* test_accept */ true, &fee);
+                nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true, &fee);
         if (test_accepted) {
             if (max_tx_fee && fee > max_tx_fee) {
                 return TransactionError::MAX_FEE_EXCEEDED;
@@ -48,7 +48,7 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
         } 
         // Transaction fee is acceptable. Submit the transaction.
         if (!AcceptToMemoryPool(*node.mempool, state, std::move(tx),
-                nullptr /* plTxnReplaced */, false /* bypass_limits */, max_tx_fee)) {
+                nullptr /* plTxnReplaced */, false /* bypass_limits */)) {
             err_string = state.ToString();
             if (state.IsInvalid()) {
                 if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
