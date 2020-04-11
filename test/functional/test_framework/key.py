@@ -7,6 +7,7 @@ WARNING: This code is slow, uses bad randomness, does not properly protect
 keys, and is trivially vulnerable to side channel attacks. Do not use for
 anything but tests."""
 import random
+import unittest
 
 from .address import byte_to_base58
 
@@ -397,3 +398,17 @@ def generate_wif_key():
     k = ECKey()
     k.generate()
     return bytes_to_wif(k.get_bytes(), k.is_compressed)
+
+class TestFrameworkKey(unittest.TestCase):
+    def _correctness(self):
+        privkey = ECKey()
+        privkey.generate(False)
+        pubkey = privkey.get_pubkey()
+        msg = random.getrandbits(256).to_bytes(256 // 8, byteorder='big')
+        sig = privkey.sign_ecdsa(msg)
+        self.assertTrue(pubkey.verify_ecdsa(sig, msg))
+
+    def test_correctness(self):
+        # verifies correctness for 64 random keys and messages
+        for _ in range(64):
+            self._correctness()

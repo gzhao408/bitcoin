@@ -68,6 +68,7 @@ TEST_EXIT_SKIPPED = 77
 
 TEST_FRAMEWORK_MODULES = [
     "script",
+    "key",
 ]
 
 EXTENDED_SCRIPTS = [
