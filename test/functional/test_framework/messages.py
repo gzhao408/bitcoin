@@ -26,6 +26,7 @@ import random
 import socket
 import struct
 import time
+import unittest
 
 from test_framework.siphash import siphash256
 from test_framework.util import hex_str_to_bytes, assert_equal
@@ -1512,3 +1513,88 @@ class msg_no_witness_blocktxn(msg_blocktxn):
 
     def serialize(self):
         return self.block_transactions.serialize(with_witness=False)
+
+TEST_ROUNDS = 16
+
+class TestFrameworkMessages(unittest.TestCase):
+    def _rand(self, numbits=256): # returns numbits-bit integer, default = length of a SHA256 hash
+        return random.getrandbits(numbits)
+
+    def _randamount(self): # returns random amount (int64) from 0 to MAX_MONEY
+        return random.randrange(0, MAX_MONEY)
+
+    def _randscript(self, length=64): # returns array of length random bytes
+        return bytearray(random.getrandbits(8) for _ in range(length))
+
+    def _randoutpoint(self): # returns random COutPoint (not necessarily valid)
+        txid = self._rand()
+        n = self._rand(32)
+        return COutPoint(txid, n)
+
+    def _randtxin(self): # returns random CTxIn (not necessarily valid)
+        script = self._randscript()
+        nsequence = self._rand(32)
+        return CTxIn(None, script, nsequence)
+
+    def _randtxout(self): # returns random CTxOut (not necessarily valid)
+        nvalue = self._randamount()
+        script = self._randscript()
+        return CTxOut(nvalue, script)
+
+    def _create_tx(self, txin, txout): # returns random CTransaction (not necessarily valid)
+        tx = CTransaction()
+        tx.vin.append(txin)
+        tx.vout.append(txout)
+        tx.calc_sha256()
+        return tx
+
+    def _randblock(self): # returns random CBlock (not necessarily valid)
+        block = CBlock()
+        block.hashPrevBlock = self._rand()
+        block.nTime = self._rand(32)
+        block.nBits = self._rand(16)
+        block.nNonce = self._rand(32)
+        block.vtx = [self._create_tx(self._randtxin(), self._randtxout())]
+        block.calc_sha256()
+        return block
+
+    def test_inv_ser(self):
+        for i in range(1, len(CInv.typemap)):
+            for _ in range(TEST_ROUNDS):
+                txid = self._rand()
+                inv_bytes = CInv(i, txid).serialize()
+                inv = CInv()
+                inv.deserialize(BytesIO(inv_bytes))
+                self.assertEqual(inv_bytes, inv.serialize())
+
+    def test_transaction_ser(self):
+        # creates random CTransaction bytes, verifies ser(deser(bytes)) = bytes
+        for _ in range(TEST_ROUNDS):
+            # COutPoint
+            outpoint_bytes = self._randoutpoint().serialize()
+            outpoint = COutPoint()
+            outpoint.deserialize(BytesIO(outpoint_bytes))
+            self.assertEqual(outpoint_bytes, outpoint.serialize())
+            # CTxIn
+            txin_bytes = self._randtxin().serialize()
+            txin = CTxIn()
+            txin.deserialize(BytesIO(txin_bytes))
+            self.assertEqual(txin_bytes, txin.serialize())
+            # CTxOut
+            txout_bytes = self._randtxout().serialize()
+            txout = CTxOut()
+            txout.deserialize(BytesIO(txout_bytes))
+            self.assertEqual(txout_bytes, txout.serialize())
+            # CTransaction
+            tx_bytes = self._create_tx(txin, txout).serialize()
+            tx = CTransaction()
+            tx.deserialize(BytesIO(tx_bytes))
+            self.assertEqual(tx_bytes, tx.serialize())
+
+    def test_block_ser(self):
+        # creates random CBlock bytes, verifies ser(deser(bytes)) = bytes
+        for _ in range(TEST_ROUNDS):
+            block_bytes = self._randblock().serialize()
+            block = CBlock()
+            block.deserialize(BytesIO(block_bytes))
+            self.assertEqual(block_bytes, block.serialize())
