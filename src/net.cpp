@@ -1069,26 +1069,35 @@ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {
     RandAddEvent((uint32_t)id);
 }
 
-bool CConnman::AddConnection(const std::string& address)
+bool CConnman::AddConnection(const std::string& address, const ConnectionType conn_type)
 {
+    assert(conn_type == ConnectionType::OUTBOUND || conn_type == ConnectionType::BLOCK_RELAY);
+
     int nOutboundFullRelay = 0;
+    int nOutboundBlockRelay = 0;
 
     {
+        // count existing connections for each type
         LOCK(cs_vNodes);
         for (const CNode* pnode : vNodes) {
             if (pnode->m_conn_type == ConnectionType::OUTBOUND) {
                 ++nOutboundFullRelay;
+            } else if (pnode->m_conn_type == ConnectionType::BLOCK_RELAY) {
+                ++nOutboundBlockRelay;
             }
         }
     }
 
-    if (nOutboundFullRelay >= m_max_outbound_full_relay) return false;
+    // max connections of specified type already exist
+    if (conn_type == ConnectionType::OUTBOUND && nOutboundFullRelay >= m_max_outbound_full_relay) return false;
+    if (conn_type == ConnectionType::BLOCK_RELAY && nOutboundBlockRelay >= m_max_outbound_block_relay) return false;
 
+    // max total outbound connections already exist
     CSemaphoreGrant grant(*semOutbound, true);
     if (!grant) return false;
 
     CAddress addr{};
-    OpenNetworkConnection(addr, false, &grant, address.c_str(), ConnectionType::OUTBOUND);
+    OpenNetworkConnection(addr, false, &grant, address.c_str(), conn_type);
     return true;
 }
 

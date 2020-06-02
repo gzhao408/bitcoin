@@ -289,15 +289,17 @@ static UniValue addconnection(const JSONRPCRequest& request)
         "\nOpen an outbound connection to a specified node (test only)",
         {
             {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The IP address and port to attempt connecting to."},
+            {"connectiontype", RPCArg::Type::STR, RPCArg::Optional::NO, "'outbound' or 'blockrelay'"},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
             {
                 { RPCResult::Type::STR, "address", "Address of newly added connection." },
+                { RPCResult::Type::STR, "connectiontype", "Type of connection opened." },
             }},
         RPCExamples{
-            HelpExampleCli("addconnection", "\"192.168.0.6:8333\"")
-            + HelpExampleRpc("addconnection", "\"192.168.0.6:8333\"")
+            HelpExampleCli("addconnection", "\"192.168.0.6:8333\" \"outbound\"")
+            + HelpExampleRpc("addconnection", "\"192.168.0.6:8333\" \"outbound\"")
         },
     };
 
@@ -307,20 +309,31 @@ static UniValue addconnection(const JSONRPCRequest& request)
         throw std::runtime_error("addconnection is for regression testing (-regtest mode) only");
     }
 
-    RPCTypeCheckArgument(request.params, UniValue::VSTR);
+    RPCTypeCheck(request.params, {UniValue::VSTR, UniValue::VSTR});
     const std::string address = request.params[0].get_str();
+    const std::string conn_type_in = request.params[1].get_str();
+    ConnectionType conn_type{};
+    if (conn_type_in == "outbound") {
+        conn_type = ConnectionType::OUTBOUND;
+    } else if (conn_type_in == "blockrelay") {
+        conn_type = ConnectionType::BLOCK_RELAY;
+    } else {
+        throw std::runtime_error(help.ToString());
+    }
+
     NodeContext& context = EnsureNodeContext(request.context);
     if (!context.connman) {
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
     }
 
-    bool success = context.connman->AddConnection(address);
+    bool success = context.connman->AddConnection(address, conn_type);
     if (!success) {
-        throw JSONRPCError(RPC_CLIENT_NODE_CAPACITY_REACHED, "Error: Max number of outbound full relay connections already open.");
+        throw JSONRPCError(RPC_CLIENT_NODE_CAPACITY_REACHED, "Error: Already at capacity for specified connection type.");
     }
 
     UniValue info(UniValue::VOBJ);
     info.pushKV("address", address);
+    info.pushKV("connectiontype", conn_type_in);
 
     return info;
 }
@@ -886,7 +899,7 @@ static const CRPCCommand commands[] =
 
     /* Not shown in help */
     { "hidden",             "addpeeraddress",         &addpeeraddress,         {"address", "port"} },
-    { "hidden",             "addconnection",          &addconnection,          {"address"} },
+    { "hidden",             "addconnection",          &addconnection,          {"address", "connectiontype"} },
 };
 // clang-format on
     for (const auto& c : commands) {
