@@ -5,6 +5,7 @@
 #include <rpc/server.h>
 
 #include <banman.h>
+#include <chainparams.h>
 #include <clientversion.h>
 #include <core_io.h>
 #include <net.h>
@@ -280,6 +281,48 @@ static UniValue addnode(const JSONRPCRequest& request)
     }
 
     return NullUniValue;
+}
+
+static UniValue addconnection(const JSONRPCRequest& request)
+{
+    const RPCHelpMan help{"addconnection",
+        "\nOpen an outbound connection to a specified node (test only)",
+        {
+            {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The IP address and port to attempt connecting to."},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                { RPCResult::Type::STR, "address", "Address of newly added connection." },
+            }},
+        RPCExamples{
+            HelpExampleCli("addconnection", "\"192.168.0.6:8333\"")
+            + HelpExampleRpc("addconnection", "\"192.168.0.6:8333\"")
+        },
+    };
+
+    help.Check(request);
+
+    if (!Params().IsMockableChain()) {
+        throw std::runtime_error("addconnection is for regression testing (-regtest mode) only");
+    }
+
+    RPCTypeCheckArgument(request.params, UniValue::VSTR);
+    const std::string address = request.params[0].get_str();
+    NodeContext& context = EnsureNodeContext(request.context);
+    if (!context.connman) {
+        throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
+    }
+
+    bool success = context.connman->AddConnection(address);
+    if (!success) {
+        throw JSONRPCError(RPC_CLIENT_NODE_CAPACITY_REACHED, "Error: Max number of outbound full relay connections already open.");
+    }
+
+    UniValue info(UniValue::VOBJ);
+    info.pushKV("address", address);
+
+    return info;
 }
 
 static UniValue disconnectnode(const JSONRPCRequest& request)
@@ -840,7 +883,10 @@ static const CRPCCommand commands[] =
     { "network",            "clearbanned",            &clearbanned,            {} },
     { "network",            "setnetworkactive",       &setnetworkactive,       {"state"} },
     { "network",            "getnodeaddresses",       &getnodeaddresses,       {"count"} },
+
+    /* Not shown in help */
     { "hidden",             "addpeeraddress",         &addpeeraddress,         {"address", "port"} },
+    { "hidden",             "addconnection",          &addconnection,          {"address"} },
 };
 // clang-format on
     for (const auto& c : commands) {

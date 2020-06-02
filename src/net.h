@@ -288,6 +288,8 @@ public:
     bool RemoveAddedNode(const std::string& node);
     std::vector<AddedNodeInfo> GetAddedNodeInfo();
 
+    bool AddConnection(const std::string& address);
+
     size_t GetNodeCount(NumConnections num);
     void GetNodeStats(std::vector<CNodeStats>& vstats);
     bool DisconnectNode(const std::string& node);
