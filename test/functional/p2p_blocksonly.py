@@ -2,14 +2,15 @@
 # Copyright (c) 2019 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Test p2p blocksonly"""
+"""Test p2p blocksonly mode & block-relay-only connections."""
+
+import time
 
 from test_framework.blocktools import create_transaction
 from test_framework.messages import msg_tx
-from test_framework.mininode import P2PInterface
+from test_framework.mininode import P2PInterface, P2PTxInvStore
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
-
 
 class P2PBlocksOnly(BitcoinTestFramework):
     def set_test_params(self):
@@ -22,6 +23,7 @@ class P2PBlocksOnly(BitcoinTestFramework):
 
     def run_test(self):
         self.blocksonly_mode_tests()
+        self.blocks_relay_conn_tests()
 
     def blocksonly_mode_tests(self):
         self.log.info("Tests with node running in -blocksonly mode")
@@ -62,10 +64,33 @@ class P2PBlocksOnly(BitcoinTestFramework):
             assert_equal(self.nodes[0].getmempoolinfo()['size'], 1)
         self.log.info("Forcerelay peer's transaction is accepted and relayed")
 
-    def check_p2p_tx_violation(self):
-        self.log.info('Check that txs from P2P are rejected and result in disconnect')
+        self.nodes[0].disconnect_p2ps()
+        self.nodes[0].generate(1)
 
-        input_txid = self.nodes[0].getblock(self.nodes[0].getblockhash(1), 2)['tx'][0]['txid']
+    def blocks_relay_conn_tests(self):
+        self.log.info('Tests with node in normal mode with block-relay-only connections')
+        self.restart_node(0, ["-noblocksonly"])  # disables blocks only mode
+        assert_equal(self.nodes[0].getnetworkinfo()['localrelay'], True)
+
+        # Ensure we disconnect if a block-relay-only connection sends us a transaction
+        self.nodes[0].add_outbound_p2p_connection(P2PInterface(), connection_type="blockrelay")
+        assert_equal(self.nodes[0].getpeerinfo()[0]['relaytxes'], False)
+        _, txid, tx_hex = self.check_p2p_tx_violation(index=2)
+
+        self.log.info("Check that txs from RPC are not sent to blockrelay connection")
+        conn = self.nodes[0].add_outbound_p2p_connection(P2PTxInvStore(), connection_type="blockrelay")
+
+        # bump time forward to ensure nNextInvSend timer pops
+        self.nodes[0].setmocktime(int(time.time()) + 5)
+
+        assert_equal(self.nodes[0].testmempoolaccept([tx_hex])[0]['allowed'], True)
+        self.nodes[0].sendrawtransaction(tx_hex)
+        conn.sync_with_ping()
+        assert(int(txid, 16) not in conn.get_invs())
+
+    def check_p2p_tx_violation(self, index=1):
+        self.log.info('Check that txs from P2P are rejected and result in disconnect')
+        input_txid = self.nodes[0].getblock(self.nodes[0].getblockhash(index), 2)['tx'][0]['txid']
         tx = create_transaction(self.nodes[0], input_txid, self.nodes[0].getnewaddress(), amount=50 - 0.001)
         txid = tx.rehash()
         tx_hex = tx.serialize().hex()
