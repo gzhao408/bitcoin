@@ -513,7 +513,7 @@ class TestNode():
                 self._raise_assertion_error(assert_msg)
 
     def add_p2p_connection(self, p2p_conn, *, wait_for_verack=True, **kwargs):
-        """Add a p2p connection to the node.
+        """Add an inbound p2p connection to the node.
 
         This method adds the p2p connection to the self.p2ps list and also
         returns the connection to the caller."""
@@ -539,6 +539,30 @@ class TestNode():
             # So syncing here is redundant when we only want to send a message, but the cost is low (a few milliseconds)
             # in comparison to the upside of making tests less fragile and unexpected intermittent errors less likely.
             p2p_conn.sync_with_ping()
+
+        return p2p_conn
+
+    def add_outbound_p2p_connection(self, p2p_conn, *, connection_type="outbound", connect_id=0, **kwargs):
+        """ Add an outbound p2p connection from node. Either
+        full-relay("outbound") or block-relay-only("blockrelay") connection.
+
+        This method adds the p2p connection to the self.p2ps list and also
+        returns the connection to the caller."""
+
+        kwargs['dstport'] = p2p_port(self.index)
+        kwargs['dstaddr'] = '127.0.0.1'
+
+        def addconnection_callback(address, port):
+            self.log.debug("Connecting to %s:%d %s" % (address, port, connection_type))
+            self.addconnection('%s:%d' % (address, port), connection_type)
+
+        p2p_conn.peer_accept_connection(connect_cb=addconnection_callback, connect_id=connect_id, net=self.chain, timeout_factor=self.timeout_factor, **kwargs)()
+
+        p2p_conn.wait_for_connect()
+        self.p2ps.append(p2p_conn)
+
+        p2p_conn.wait_for_verack()
+        p2p_conn.sync_with_ping()
 
         return p2p_conn
 
