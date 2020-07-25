@@ -24,6 +24,7 @@ from test_framework.util import (
     hex_str_to_bytes,
 )
 
+MAX_FEE_EXCEEDED_MSG = "Fee exceeds maximum configured by -maxtxfee"
 
 class multidict(dict):
     """Dictionary that allows duplicate keys.
@@ -458,7 +459,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         assert_equal(testres['allowed'], False)
         assert_equal(testres['reject-reason'], 'max-fee-exceeded')
         # and sendrawtransaction should throw
-        assert_raises_rpc_error(-26, "absurdly-high-fee", self.nodes[2].sendrawtransaction, rawTxSigned['hex'], 0.00001000)
+        assert_raises_rpc_error(-25, MAX_FEE_EXCEEDED_MSG, self.nodes[2].sendrawtransaction, rawTxSigned['hex'], 0.00001000)
         # and the following calls should both succeed
         testres = self.nodes[2].testmempoolaccept(rawtxs=[rawTxSigned['hex']])[0]
         assert_equal(testres['allowed'], True)
@@ -482,7 +483,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         assert_equal(testres['allowed'], False)
         assert_equal(testres['reject-reason'], 'max-fee-exceeded')
         # and sendrawtransaction should throw
-        assert_raises_rpc_error(-26, "absurdly-high-fee", self.nodes[2].sendrawtransaction, rawTxSigned['hex'])
+        assert_raises_rpc_error(-25, MAX_FEE_EXCEEDED_MSG, self.nodes[2].sendrawtransaction, rawTxSigned['hex'])
         # and the following calls should both succeed
         testres = self.nodes[2].testmempoolaccept(rawtxs=[rawTxSigned['hex']], maxfeerate='0.20000000')[0]
         assert_equal(testres['allowed'], True)
