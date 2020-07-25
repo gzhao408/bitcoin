@@ -842,24 +842,11 @@ static UniValue sendrawtransaction(const JSONRPCRequest& request)
     AssertLockNotHeld(cs_main);
     NodeContext& node = EnsureNodeContext(request.context);
 
-    // Test Accept first to get the fee
-    TxValidationState state;
-    bool test_accept_res;
-    CAmount fee; // To return transaction fee from AcceptToMemoryPool
-    {
-        LOCK(cs_main);
-        test_accept_res = AcceptToMemoryPool(mempool, state, std::move(tx),
-            nullptr /* plTxnReplaced */, false /* bypass_limits */, max_raw_tx_fee, /* test_accept */ true, &fee);
-    }
-    // TODO: move ATMP absurdFee check to here
-    if (state.GetRejectReason().find("absurdly-high-fee") != std::string::npos) {
-        throw JSONRPCTransactionError(TransactionError::MAX_FEE_EXCEEDED, "max-fee-exceeded");
-    }
-
     const TransactionError err = BroadcastTransaction(node, tx, err_string, max_raw_tx_fee, /*relay*/ true, /*wait_callback*/ true);
     if (TransactionError::OK != err) {
         throw JSONRPCTransactionError(err, err_string);
     }
+
 
     return tx->GetHash().GetHex();
 }
@@ -941,9 +928,9 @@ static UniValue testmempoolaccept(const JSONRPCRequest& request)
             nullptr /* plTxnReplaced */, false /* bypass_limits */, max_raw_tx_fee, /* test_accept */ true, &fee);
     }
 
-    // TODO: move ATMP absurdFee check to here
-    if (state.GetRejectReason().find("absurdly-high-fee") != std::string::npos) {
-        result_0.pushKV("allowed", test_accept_res);
+    // Check that fee does not exceed maxfee
+    if (test_accept_res && max_raw_tx_fee && fee > max_raw_tx_fee) {
+        result_0.pushKV("allowed", false);
         result_0.pushKV("reject-reason", "max-fee-exceeded");
         result_0.pushKV("fee", fee);
         result.push_back(std::move(result_0));
