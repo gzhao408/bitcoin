@@ -29,6 +29,7 @@
 #include <script/standard.h>
 #include <uint256.h>
 #include <util/bip32.h>
+#include <util/error.h>
 #include <util/moneystr.h>
 #include <util/strencodings.h>
 #include <util/string.h>
@@ -840,6 +841,21 @@ static UniValue sendrawtransaction(const JSONRPCRequest& request)
     std::string err_string;
     AssertLockNotHeld(cs_main);
     NodeContext& node = EnsureNodeContext(request.context);
+
+    // Test Accept first to get the fee
+    TxValidationState state;
+    bool test_accept_res;
+    CAmount fee; // To return transaction fee from AcceptToMemoryPool
+    {
+        LOCK(cs_main);
+        test_accept_res = AcceptToMemoryPool(mempool, state, std::move(tx),
+            nullptr /* plTxnReplaced */, false /* bypass_limits */, max_raw_tx_fee, /* test_accept */ true, &fee);
+    }
+    // TODO: move ATMP absurdFee check to here
+    if (state.GetRejectReason().find("absurdly-high-fee") != std::string::npos) {
+        throw JSONRPCTransactionError(TransactionError::MAX_FEE_EXCEEDED, "max-fee-exceeded");
+    }
+
     const TransactionError err = BroadcastTransaction(node, tx, err_string, max_raw_tx_fee, /*relay*/ true, /*wait_callback*/ true);
     if (TransactionError::OK != err) {
         throw JSONRPCTransactionError(err, err_string);
