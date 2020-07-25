@@ -24,7 +24,7 @@ from test_framework.util import (
     hex_str_to_bytes,
 )
 
-MAX_FEE_EXCEEDED_MSG = "Fee exceeds maximum configured by -maxtxfee"
+MAX_FEE_EXCEEDED_MSG = "Fee exceeds maximum configured by user (eg -maxtxfee, maxfeerate)"
 
 class multidict(dict):
     """Dictionary that allows duplicate keys.

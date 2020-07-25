@@ -21,6 +21,7 @@ import json
 import os
 
 MAX_BIP125_RBF_SEQUENCE = 0xfffffffd
+MAX_FEE_EXCEEDED_MSG = 'Fee exceeds maximum configured by user (eg -maxtxfee, maxfeerate)'
 
 # Create one-input, one-output, no-fee transaction:
 class PSBTTest(BitcoinTestFramework):
@@ -172,8 +173,8 @@ class PSBTTest(BitcoinTestFramework):
 
         # feeRate of 10 BTC / KB produces a total fee well above -maxtxfee
         # previously this was silently capped at -maxtxfee
-        assert_raises_rpc_error(-4, "Fee exceeds maximum configured by -maxtxfee", self.nodes[1].walletcreatefundedpsbt, [{"txid":txid,"vout":p2wpkh_pos},{"txid":txid,"vout":p2sh_p2wpkh_pos},{"txid":txid,"vout":p2pkh_pos}], {self.nodes[1].getnewaddress():29.99}, 0, {"feeRate": 10, "add_inputs": True})
-        assert_raises_rpc_error(-4, "Fee exceeds maximum configured by -maxtxfee", self.nodes[1].walletcreatefundedpsbt, [{"txid":txid,"vout":p2wpkh_pos},{"txid":txid,"vout":p2sh_p2wpkh_pos},{"txid":txid,"vout":p2pkh_pos}], {self.nodes[1].getnewaddress():1}, 0, {"feeRate": 10, "add_inputs": False})
+        assert_raises_rpc_error(-4, MAX_FEE_EXCEEDED_MSG, self.nodes[1].walletcreatefundedpsbt, [{"txid":txid,"vout":p2wpkh_pos},{"txid":txid,"vout":p2sh_p2wpkh_pos},{"txid":txid,"vout":p2pkh_pos}], {self.nodes[1].getnewaddress():29.99}, 0, {"feeRate": 10, "add_inputs": True})
+        assert_raises_rpc_error(-4, MAX_FEE_EXCEEDED_MSG, self.nodes[1].walletcreatefundedpsbt, [{"txid":txid,"vout":p2wpkh_pos},{"txid":txid,"vout":p2sh_p2wpkh_pos},{"txid":txid,"vout":p2pkh_pos}], {self.nodes[1].getnewaddress():1}, 0, {"feeRate": 10, "add_inputs": False})
 
         # partially sign multisig things with node 1
         psbtx = wmulti.walletcreatefundedpsbt(inputs=[{"txid":txid,"vout":p2wsh_pos},{"txid":txid,"vout":p2sh_pos},{"txid":txid,"vout":p2sh_p2wsh_pos}], outputs={self.nodes[1].getnewaddress():29.99}, options={'changeAddress': self.nodes[1].getrawchangeaddress()})['psbt']
