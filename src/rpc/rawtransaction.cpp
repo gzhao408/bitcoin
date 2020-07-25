@@ -931,6 +931,15 @@ static UniValue testmempoolaccept(const JSONRPCRequest& request)
         test_accept_res = AcceptToMemoryPool(mempool, state, std::move(tx),
             nullptr /* plTxnReplaced */, false /* bypass_limits */, max_raw_tx_fee, /* test_accept */ true, &fee);
     }
+
+    // TODO: move ATMP absurdFee check to here
+    if (state.GetRejectReason().find("absurdly-high-fee") != std::string::npos) {
+        result_0.pushKV("allowed", test_accept_res);
+        result_0.pushKV("reject-reason", "max-fee-exceeded");
+        result_0.pushKV("fee", fee);
+        result.push_back(std::move(result_0));
+        return result;
+    }
     result_0.pushKV("allowed", test_accept_res);
     if (test_accept_res) {
         // Push tx fee, only if test_accept_res == true
