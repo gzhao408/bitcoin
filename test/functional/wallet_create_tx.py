@@ -12,6 +12,8 @@ from test_framework.blocktools import (
     TIME_GENESIS_BLOCK,
 )
 
+MAX_FEE_EXCEEDED_MSG = 'Fee exceeds maximum configured by user (eg -maxtxfee, maxfeerate)'
+
 
 class CreateTxWalletTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -53,12 +55,12 @@ class CreateTxWalletTest(BitcoinTestFramework):
             self.restart_node(0, extra_args=[fee_setting])
             assert_raises_rpc_error(
                 -6,
-                "Fee exceeds maximum configured by -maxtxfee",
+                MAX_FEE_EXCEEDED_MSG,
                 lambda: self.nodes[0].sendmany(dummy="", amounts=outputs),
             )
             assert_raises_rpc_error(
                 -4,
-                "Fee exceeds maximum configured by -maxtxfee",
+                MAX_FEE_EXCEEDED_MSG,
                 lambda: self.nodes[0].fundrawtransaction(hexstring=raw_tx),
             )
 
@@ -67,12 +69,12 @@ class CreateTxWalletTest(BitcoinTestFramework):
         self.nodes[0].settxfee(0.01)
         assert_raises_rpc_error(
             -6,
-            "Fee exceeds maximum configured by -maxtxfee",
+            MAX_FEE_EXCEEDED_MSG,
             lambda: self.nodes[0].sendmany(dummy="", amounts=outputs),
         )
         assert_raises_rpc_error(
             -4,
-            "Fee exceeds maximum configured by -maxtxfee",
+            MAX_FEE_EXCEEDED_MSG,
             lambda: self.nodes[0].fundrawtransaction(hexstring=raw_tx),
         )
         self.nodes[0].settxfee(0)
