@@ -832,12 +832,21 @@ public:
 
     //! search for a given byte in the stream, and remain positioned on it
     void FindByte(char ch) {
+        // start is the index into vchBuf[] at which to start searching
+        size_t start = nReadPos % vchBuf.size();
         while (true) {
             if (nReadPos == nSrcPos)
                 Fill();
-            if (vchBuf[nReadPos % vchBuf.size()] == ch)
-                break;
-            nReadPos++;
+            size_t n = vchBuf.size() - start;
+            if (n > nSrcPos - nReadPos)
+                n = nSrcPos - nReadPos;
+            auto it_start = vchBuf.begin() + start;
+            auto it_find = std::find(it_start, it_start + n, ch);
+            size_t inc = it_find - it_start;
+            nReadPos += inc;
+            if (inc < n) break;
+            start += inc;
+            if (start >= vchBuf.size()) start = 0;
         }
     }
 };
