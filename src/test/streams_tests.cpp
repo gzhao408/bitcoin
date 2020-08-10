@@ -445,4 +445,29 @@ BOOST_AUTO_TEST_CASE(streams_buffered_file_rand)
     fs::remove("streams_test_tmp");
 }
 
+// This test helps compare the performance of FindByte() implementations;
+// its functionality is tested in the test above. Set the repetition
+// limit (500) to a larger value and then time the test.
+BOOST_AUTO_TEST_CASE(streams_findbyte)
+{
+    FILE* file = fsbridge::fopen("streams_test_tmp", "w+b");
+    const size_t fileSize = 200;
+    uint8_t b = 0;
+    for (size_t i = 0; i < fileSize; ++i) {
+        fwrite(&b, 1, 1, file);
+    }
+    b = 1;
+    fwrite(&b, 1, 1, file);
+    rewind(file);
+    CBufferedFile bf(file, fileSize * 2, fileSize, 0, 0);
+    for (int rep = 0; rep < 100; ++rep) {
+        bf.SetPos(0);
+        // This searches fileSize bytes before finding the 1 value.
+        bf.FindByte(1);
+    }
+    BOOST_CHECK_EQUAL(bf.GetPos(), fileSize);
+    bf.fclose();
+    fs::remove("streams_test_tmp");
+}
+
 BOOST_AUTO_TEST_SUITE_END()
