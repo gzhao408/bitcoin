@@ -1043,8 +1043,9 @@ bool MemPoolAccept::AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs
     // checks pass, to mitigate CPU exhaustion denial-of-service attacks.
     PrecomputedTransactionData txdata;
 
+    LogPrintf("@@@ Calling PolicyScriptChecks!\n");
     if (!PolicyScriptChecks(args, workspace, txdata)) return false;
-
+    LogPrintf("@@@ Calling ConsensusScriptChecks!\n");
     if (!ConsensusScriptChecks(args, workspace, txdata)) return false;
 
     // Tx was accepted, but not added
@@ -1086,6 +1087,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, TxValidationState &state, const CTrans
                         std::list<CTransactionRef>* plTxnReplaced,
                         bool bypass_limits, bool test_accept, CAmount* fee_out)
 {
+    LogPrintf("@@@ Calling ATMP with testaccept=%d !\n", test_accept);
     const CChainParams& chainparams = Params();
     return AcceptToMemoryPoolWithTime(chainparams, pool, state, tx, GetTime(), plTxnReplaced, bypass_limits, test_accept, fee_out);
 }
@@ -1526,9 +1528,9 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState &state, const C
     hasher.Write(tx.GetWitnessHash().begin(), 32).Write((unsigned char*)&flags, sizeof(flags)).Finalize(hashCacheEntry.begin());
     AssertLockHeld(cs_main); //TODO: Remove this requirement by making CuckooCache not require external locks
     if (g_scriptExecutionCache.contains(hashCacheEntry, !cacheFullScriptStore)) {
+        LogPrintf("@@@ Script Execution cache is already filled!\n");
         return true;
     }
-
     if (!txdata.m_ready) {
         txdata.Init(tx);
     }
@@ -1545,6 +1547,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState &state, const C
         // spent being checked as a part of CScriptCheck.
 
         // Verify signature
+        LogPrintf("@@@ Verifying Signature\n");
         CScriptCheck check(coin.out, tx, i, flags, cacheSigStore, &txdata);
         if (pvChecks) {
             pvChecks->push_back(CScriptCheck());
@@ -1580,6 +1583,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState &state, const C
     if (cacheFullScriptStore && !pvChecks) {
         // We executed all of the provided scripts, and were told to
         // cache the result. Do so now.
+        LogPrintf("@@@ Adding entry to Script Execution cache!\n");
         g_scriptExecutionCache.insert(hashCacheEntry);
     }
 

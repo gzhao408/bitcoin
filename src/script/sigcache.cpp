@@ -89,11 +89,15 @@ bool CachingTransactionSignatureChecker::VerifySignature(const std::vector<unsig
 {
     uint256 entry;
     signatureCache.ComputeEntry(entry, sighash, vchSig, pubkey);
-    if (signatureCache.Get(entry, !store))
+    if (signatureCache.Get(entry, !store)) {
+        LogPrintf("@@@ Signature Cache already filled!\n");
         return true;
+    }
     if (!TransactionSignatureChecker::VerifySignature(vchSig, pubkey, sighash))
         return false;
-    if (store)
+    if (store) {
+        LogPrintf("@@@ Adding entry to Signature Cache!\n");
         signatureCache.Set(entry);
+    }
     return true;
 }

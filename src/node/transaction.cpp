@@ -24,6 +24,7 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
     uint256 hashTx = tx->GetHash();
     bool callback_set = false;
 
+    LogPrintf("@@@ In BroadcastTransaction()\n");
     { // cs_main scope
     LOCK(cs_main);
     // If the transaction is already confirmed in the chain, don't do anything
@@ -42,6 +43,7 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
         bool test_accepted = AcceptToMemoryPool(*node.mempool, state, std::move(tx),
                 nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true, &fee);
         if (test_accepted) {
+            LogPrintf("@@@ Accepted, checking max fee\n");
             if (max_tx_fee && fee > max_tx_fee) {
                 return TransactionError::MAX_FEE_EXCEEDED;
             }
