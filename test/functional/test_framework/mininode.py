@@ -152,10 +152,10 @@ class P2PConnection(asyncio.Protocol):
         coroutine = loop.create_connection(lambda: self, host=self.dstaddr, port=self.dstport)
         return lambda: loop.call_soon_threadsafe(loop.create_task, coroutine)
 
-    def peer_accept_connection(self, dstaddr, dstport, connect_cb, connect_id=0, *, net, timeout_factor):
+    def peer_accept_connection(self, dstaddr, dstport, connect_cb, index, connect_id, *, net, timeout_factor):
         self.peer_connect_helper(dstaddr, dstport, net, timeout_factor)
 
-        logger.debug('Listening for Bitcoin Node: %s:' % (connect_id))
+        logger.debug('Listening for Bitcoin Node: %s:' % (index))
         return lambda: NetworkThread.listen(self, connect_cb, idx=connect_id)
 
     def peer_disconnect(self):

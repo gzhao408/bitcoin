@@ -137,81 +137,25 @@ class ExampleTest(BitcoinTestFramework):
         """Main test logic"""
 
         # Create P2P connections will wait for a verack to make sure the connection is fully up
-        self.nodes[0].add_p2p_connection(BaseNode())
+        self.log.info("Add inbound to node0")
+        self.nodes[0].add_p2p_connection(P2PInterface())
+        for i in range(8):
+            self.log.info("Add outbound {} to node0".format(i))
+            self.nodes[0].add_outbound_p2p_connection(P2PInterface(), connect_id=i)
+        for i in range(2):
+            self.log.info("Add outbound block relay {} to node0".format(i))
+            self.nodes[0].add_outbound_p2p_connection(P2PInterface(), connection_type="blockrelay", connect_id=8+i)
 
-        # Generating a block on one of the nodes will get us out of IBD
-        blocks = [int(self.nodes[0].generate(nblocks=1)[0], 16)]
-        self.sync_all(self.nodes[0:2])
+        self.log.info("Add inbound {} to node1".format(i))
+        self.nodes[1].add_p2p_connection(P2PInterface())
+        for i in range(8):
+            self.log.info("Add outbound {} to node1".format(i))
+            self.nodes[1].add_outbound_p2p_connection(P2PInterface(), connect_id=i)
+        for i in range(2):
+            self.log.info("Add outbound block relay {} to node1".format(i))
+            self.nodes[1].add_outbound_p2p_connection(P2PInterface(), connection_type="blockrelay", connect_id=8+i)
 
-        # Notice above how we called an RPC by calling a method with the same
-        # name on the node object. Notice also how we used a keyword argument
-        # to specify a named RPC argument. Neither of those are defined on the
-        # node object. Instead there's some __getattr__() magic going on under
-        # the covers to dispatch unrecognised attribute calls to the RPC
-        # interface.
 
-        # Logs are nice. Do plenty of them. They can be used in place of comments for
-        # breaking the test into sub-sections.
-        self.log.info("Starting test!")
-
-        self.log.info("Calling a custom function")
-        custom_function()
-
-        self.log.info("Calling a custom method")
-        self.custom_method()
-
-        self.log.info("Create some blocks")
-        self.tip = int(self.nodes[0].getbestblockhash(), 16)
-        self.block_time = self.nodes[0].getblock(self.nodes[0].getbestblockhash())['time'] + 1
-
-        height = self.nodes[0].getblockcount()
-
-        for _ in range(10):
-            # Use the mininode and blocktools functionality to manually build a block
-            # Calling the generate() rpc is easier, but this allows us to exactly
-            # control the blocks and transactions.
-            block = create_block(self.tip, create_coinbase(height+1), self.block_time)
-            block.solve()
-            block_message = msg_block(block)
-            # Send message is used to send a P2P message to the node over our P2PInterface
-            self.nodes[0].p2p.send_message(block_message)
-            self.tip = block.sha256
-            blocks.append(self.tip)
-            self.block_time += 1
-            height += 1
-
-        self.log.info("Wait for node1 to reach current tip (height 11) using RPC")
-        self.nodes[1].waitforblockheight(11)
-
-        self.log.info("Connect node2 and node1")
-        connect_nodes(self.nodes[1], 2)
-
-        self.log.info("Wait for node2 to receive all the blocks from node1")
-        self.sync_all()
-
-        self.log.info("Add P2P connection to node2")
-        self.nodes[0].disconnect_p2ps()
-
-        self.nodes[2].add_p2p_connection(BaseNode())
-
-        self.log.info("Test that node2 propagates all the blocks to us")
-
-        getdata_request = msg_getdata()
-        for block in blocks:
-            getdata_request.inv.append(CInv(MSG_BLOCK, block))
-        self.nodes[2].p2p.send_message(getdata_request)
-
-        # wait_until() will loop until a predicate condition is met. Use it to test properties of the
-        # P2PInterface objects.
-        wait_until(lambda: sorted(blocks) == sorted(list(self.nodes[2].p2p.block_receive_map.keys())), timeout=5, lock=mininode_lock)
-
-        self.log.info("Check that each block was received only once")
-        # The network thread uses a global lock on data access to the P2PConnection objects when sending and receiving
-        # messages. The test thread should acquire the global lock before accessing any P2PConnection data to avoid locking
-        # and synchronization issues. Note wait_until() acquires this global lock when testing the predicate.
-        with mininode_lock:
-            for block in self.nodes[2].p2p.block_receive_map.values():
-                assert_equal(block, 1)
-
+        
 if __name__ == '__main__':
     ExampleTest().main()

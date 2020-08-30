@@ -556,8 +556,7 @@ class TestNode():
             self.log.debug("Connecting to %s:%d %s" % (address, port, connection_type))
             self.addconnection('%s:%d' % (address, port), connection_type)
 
-        p2p_conn.peer_accept_connection(connect_cb=addconnection_callback, connect_id=connect_id, net=self.chain, timeout_factor=self.timeout_factor, **kwargs)()
-
+        p2p_conn.peer_accept_connection(connect_cb=addconnection_callback, index=self.index, connect_id=connect_id, net=self.chain, timeout_factor=self.timeout_factor, **kwargs)()
         p2p_conn.wait_for_connect()
         self.p2ps.append(p2p_conn)
 
