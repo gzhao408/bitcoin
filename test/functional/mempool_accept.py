@@ -55,6 +55,59 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getmempoolinfo()['size'], self.mempool_size)  # Must not change mempool state
 
     def run_test(self):
+        self.test_single()
+        self.test_chain()
+
+    def chain_transaction(self, parent_txid, value, parent_scriptPubKey=None):
+        """Build a transaction that spends parent_txid:vout. Return tuple (transaction id, raw hex)."""
+        inputs = [{'txid' : parent_txid, 'vout' : 0}]
+        outputs = {self.nodes[0].getnewaddress(): value}
+        rawtx = self.nodes[0].createrawtransaction(inputs, outputs)
+        prevtxs = [{
+            'txid': parent_txid,
+            'vout': 0,
+            'scriptPubKey': parent_scriptPubKey,
+            'amount': value + Decimal("0.0001"),
+        }] if parent_scriptPubKey else None
+        signedtx = self.nodes[0].signrawtransactionwithwallet(hexstring=rawtx, prevtxs=prevtxs)
+        tx = CTransaction()
+        assert signedtx['complete']
+        tx.deserialize(BytesIO(hex_str_to_bytes(signedtx['hex'])))
+        return (tx.rehash(), signedtx['hex'], tx.vout[0].scriptPubKey.hex())
+
+    def test_chain(self):
+        node = self.nodes[0]
+        self.mempool_size = 0
+        first_coin = node.listunspent(query_options={'minimumAmount': 50}).pop()
+
+        self.log.info("Create a chain of 3 transactions")
+        scriptPubKey = None
+        txid = first_coin['txid']
+        chain = []
+        chain_txids = []
+        value = Decimal("50.0")
+        testres_single = []
+
+        for _ in range(3):
+            value -= Decimal("0.0001") # Deduct reasonable fee
+            (txid, txhex, scriptPubKey) = self.chain_transaction(txid, value, scriptPubKey)
+            chain.append(txhex)
+            chain_txids.append(txid)
+            testres = node.testmempoolaccept([txhex])
+            testres_single.append(testres)
+
+        self.log.info("Testmempoolaccept should succeed for the first transaction, and the other two should be seen as orphans")
+        assert self.nodes[0].testmempoolaccept([chain[0]])[0]['allowed']
+        self.check_mempool_result(
+            result_expected=[{'txid': chain_txids[1], 'allowed': False, 'reject-reason': 'missing-inputs'}],
+            rawtxs=[chain[1]],
+        )
+        self.check_mempool_result(
+            result_expected=[{'txid': chain_txids[2], 'allowed': False, 'reject-reason': 'missing-inputs'}],
+            rawtxs=[chain[2]],
+        )
+
+    def test_single(self):
         node = self.nodes[0]
 
         self.log.info('Start with empty mempool, and 200 blocks')
