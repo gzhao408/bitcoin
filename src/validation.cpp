@@ -1086,6 +1086,35 @@ bool AcceptToMemoryPool(CTxMemPool& pool, TxValidationState &state, const CTrans
     return AcceptToMemoryPoolWithTime(chainparams, pool, state, tx, GetTime(), plTxnReplaced, bypass_limits, test_accept, fee_out);
 }
 
+std::vector<ATMPResult> AcceptPackageToMemoryPool(CTxMemPool& pool, std::vector<const CTransactionRef>& txns, bool test_accept)
+{
+    AssertLockHeld(cs_main);
+    assert(test_accept); // Only allow package accept dry-runs (testmempoolaccept RPC).
+
+    const CChainParams& chainparams = Params();
+    std::vector<COutPoint> coins_to_uncache;
+    MemPoolAccept::ATMPArgs args { chainparams, GetTime(), false, coins_to_uncache, test_accept };
+    std::vector<ATMPResult> results;
+    bool res = true;
+
+    for (auto tx: txns) {
+        ATMPResult result;
+        result.m_accepted = MemPoolAccept(pool).AcceptSingleTransaction(tx, args, result);
+        results.push_back(std::move(result));
+    }
+
+    if (!res) {
+        // Remove coins that were not present in the coins cache before calling ATMPW;
+        // this is to prevent memory DoS in case we receive a large number of
+        // invalid transactions that attempt to overrun the in-memory coins cache
+        // (`CCoinsViewCache::cacheCoins`).
+
+        for (const COutPoint& hashTx : coins_to_uncache)
+            ::ChainstateActive().CoinsTip().Uncache(hashTx);
+    }
+    return results;
+}
+
 CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const uint256& hash, const Consensus::Params& consensusParams, uint256& hashBlock)
 {
     LOCK(cs_main);
