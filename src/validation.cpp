@@ -443,6 +443,9 @@ public:
     // Single transaction acceptance
     MempoolAcceptResult AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+    // Multiple transaction acceptance
+    std::vector<MempoolAcceptResult> AcceptMultipleTransactions(std::vector<const CTransactionRef>& txns, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
 private:
     // All the intermediate state that gets passed between the various levels
     // of checking a given transaction.
@@ -565,6 +568,11 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, MempoolAcceptResult& result, Works
         return state.Invalid(TxValidationResult::TX_CONFLICT, "txn-already-in-mempool");
     }
 
+    // Check for duplicates in package
+    if (m_viewmempool.PackageContains(hash)) {
+        return state.Invalid(TxValidationResult::TX_CONFLICT, "txn-already-known");
+    }
+
     // Check for conflicts with in-memory transactions
     for (const CTxIn &txin : tx.vin)
     {
@@ -604,6 +612,13 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, MempoolAcceptResult& result, Works
 
     LockPoints lp;
     m_view.SetBackend(m_viewmempool);
+
+    // Check for conflicts with package transactions
+    for (const CTxIn &txin : tx.vin) {
+        if (m_viewmempool.PackageSpends(txin.prevout)) {
+            return state.Invalid(TxValidationResult::TX_MISSING_INPUTS, "bad-txns-inputs-missingorspent");
+        }
+    }
 
     CCoinsViewCache& coins_cache = ::ChainstateActive().CoinsTip();
     // do all inputs exist?
@@ -1024,6 +1039,49 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef
     return result;
 }
 
+std::vector<MempoolAcceptResult> MemPoolAccept::AcceptMultipleTransactions(std::vector<const CTransactionRef>& txns, ATMPArgs& args)
+{
+    AssertLockHeld(cs_main);
+    LOCK(m_pool.cs);
+    std::vector<MempoolAcceptResult> results{};
+    std::vector<Workspace> workspaces{};
+    workspaces.reserve(txns.size());
+    std::transform(txns.begin(), txns.end(), std::back_inserter(workspaces), [](const CTransactionRef& tx) {
+        return Workspace(tx);
+    });
+    // Do all PreChecks first and fail fast to avoid running expensive script checks when unnecessary.
+    for (unsigned int i = 0; i < txns.size(); ++i) {
+        MempoolAcceptResult result(txns[i]);
+        if (!PreChecks(args, result, workspaces[i])) {
+            result.m_accepted = false;
+            return std::vector<MempoolAcceptResult> {std::move(result)};
+        }
+        result.m_accepted = true; // Allowed so far
+        m_viewmempool.AddPackageTransaction(txns[i]);
+        results.push_back(result);
+    }
+
+    // Run script checks
+    for (unsigned int i = 0; i < txns.size(); ++i) {
+        // Only compute the precomputed transaction data if we need to verify
+        // scripts (ie, other policy checks pass). We perform the inexpensive
+        // checks first and avoid hashing and signature verification unless those
+        // checks pass, to mitigate CPU exhaustion denial-of-service attacks.
+        PrecomputedTransactionData txdata;
+
+        if (!PolicyScriptChecks(args, results[i], workspaces[i], txdata)) {
+            results[i].m_accepted = false;
+            return std::vector<MempoolAcceptResult> {std::move(results[i])};
+        }
+
+        if (!ConsensusScriptChecks(args, results[i], workspaces[i], txdata)) {
+            results[i].m_accepted = false;
+            return std::vector<MempoolAcceptResult> {std::move(results[i])};
+        }
+    }
+    return results;
+}
+
 } // anon namespace
 
 /** (try to) add transaction to memory pool with a specified acceptance time **/
@@ -1055,6 +1113,28 @@ MempoolAcceptResult AcceptToMemoryPool(CTxMemPool& pool, const CTransactionRef &
     const CChainParams& chainparams = Params();
     MempoolAcceptResult result = AcceptToMemoryPoolWithTime(chainparams, pool, tx, GetTime(), bypass_limits, test_accept);
     return result;
+}
+
+std::vector<MempoolAcceptResult> ProcessNewPackage(CTxMemPool& pool, std::vector<const CTransactionRef>& txns, bool test_accept)
+{
+    AssertLockHeld(cs_main);
+    assert(test_accept); // Only allow package accept dry-runs (testmempoolaccept RPC).
+
+    const CChainParams& chainparams = Params();
+    std::vector<COutPoint> coins_to_uncache;
+    MemPoolAccept::ATMPArgs args { chainparams, GetTime(), false, coins_to_uncache, test_accept };
+
+    std::vector<MempoolAcceptResult> results = MemPoolAccept(pool).AcceptMultipleTransactions(txns, args);
+
+    // Remove coins that were not present in the coins cache before calling ATMPW;
+    // this is to prevent memory DoS in case we receive a large number of
+    // invalid transactions that attempt to overrun the in-memory coins cache
+    // (`CCoinsViewCache::cacheCoins`).
+
+    for (const COutPoint& hashTx : coins_to_uncache)
+        ::ChainstateActive().CoinsTip().Uncache(hashTx);
+
+    return results;
 }
 
 CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const uint256& hash, const Consensus::Params& consensusParams, uint256& hashBlock)
