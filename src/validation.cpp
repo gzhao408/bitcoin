@@ -424,32 +424,34 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, TxValidationS
     // to enforce that mempool doesn't change between when we check the view
     // and when we actually call through to CheckInputScripts
     LOCK(pool.cs);
-
     assert(!tx.IsCoinBase());
-    for (const CTxIn& txin : tx.vin) {
-        const Coin& coin = view.AccessCoin(txin.prevout);
 
-        // AcceptToMemoryPoolWorker has already checked that the coins are
-        // available, so this shouldn't fail. If the inputs are not available
-        // here then return false.
-        if (coin.IsSpent()) return false;
+    if (pool_view.PackageContains(tx.GetHash())) {
+        // TODO: make sure there aren't conflicts within the package
+        // but this shouldn't be an issue within the package because
+        // that is checked in PreChecks.
+    } else {
+            for (const CTxIn& txin : tx.vin) {
+            const Coin& coin = view.AccessCoin(txin.prevout);
 
-        // Check equivalence for available inputs.
-        const CTransactionRef& txFrom = pool.get(txin.prevout.hash);
-        Coin coinPrev;
-        if (txFrom) {
-            assert(txFrom->GetHash() == txin.prevout.hash);
-            assert(txFrom->vout.size() > txin.prevout.n);
-            assert(txFrom->vout[txin.prevout.n] == coin.out);
-        } else if (pool_view.GetCoin(txin.prevout, coinPrev)) {
-            // TODO: maybe actually check the prev transaction instead
-        } else {
-            const Coin& coinFromDisk = ::ChainstateActive().CoinsTip().AccessCoin(txin.prevout);
-            assert(!coinFromDisk.IsSpent());
-            assert(coinFromDisk.out == coin.out);
+            // AcceptToMemoryPoolWorker has already checked that the coins are
+            // available, so this shouldn't fail. If the inputs are not available
+            // here then return false.
+            if (coin.IsSpent()) return false;
+
+            // Check equivalence for available inputs.
+            const CTransactionRef& txFrom = pool.get(txin.prevout.hash);
+            if (txFrom) {
+                assert(txFrom->GetHash() == txin.prevout.hash);
+                assert(txFrom->vout.size() > txin.prevout.n);
+                assert(txFrom->vout[txin.prevout.n] == coin.out);
+            } else {
+                const Coin& coinFromDisk = ::ChainstateActive().CoinsTip().AccessCoin(txin.prevout);
+                assert(!coinFromDisk.IsSpent());
+                assert(coinFromDisk.out == coin.out);
+            }
         }
     }
-
     // Call CheckInputScripts() to cache signature and script validity against current tip consensus rules.
     return CheckInputScripts(tx, state, view, flags, /* cacheSigStore = */ true, /* cacheFullSciptStore = */ true, txdata);
 }
@@ -484,6 +486,8 @@ public:
 
     // Single transaction acceptance
     bool AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs& args, ATMPResult& result) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    // Multiple transaction acceptance
+    std::vector<ATMPResult> AcceptMultipleTransactions(std::vector<const CTransactionRef>& txns, ATMPArgs& args);
 
 private:
     // All the intermediate state that gets passed between the various levels
@@ -607,6 +611,11 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, ATMPResult& result, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_CONFLICT, "txn-already-in-mempool");
     }
 
+    // Check for duplicates in package
+    if (m_viewmempool.PackageContains(hash)) {
+        return state.Invalid(TxValidationResult::TX_CONFLICT, "txn-already-known");
+    }
+
     // Check for conflicts with in-memory transactions
     for (const CTxIn &txin : tx.vin)
     {
@@ -646,6 +655,13 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, ATMPResult& result, Workspace& ws)
 
     LockPoints lp;
     m_view.SetBackend(m_viewmempool);
+
+    // Check for conflicts with package transactions
+    for (const CTxIn &txin : tx.vin) {
+        if (m_viewmempool.PackageSpends(txin.prevout)) {
+            return state.Invalid(TxValidationResult::TX_MISSING_INPUTS, "bad-txns-inputs-missingorspent");
+        }
+    }
 
     CCoinsViewCache& coins_cache = ::ChainstateActive().CoinsTip();
     // do all inputs exist?
@@ -1051,6 +1067,52 @@ bool MemPoolAccept::AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs
     return true;
 }
 
+std::vector<ATMPResult> MemPoolAccept::AcceptMultipleTransactions(std::vector<const CTransactionRef>& txns, ATMPArgs& args)
+{
+    AssertLockHeld(cs_main);
+    std::vector<ATMPResult> results{};
+    std::vector<Workspace> workspaces{};
+    workspaces.reserve(txns.size());
+    std::transform(txns.begin(), txns.end(), std::back_inserter(workspaces), [](const CTransactionRef& tx) {
+        return Workspace(tx);
+    });
+    // Do all PreChecks first and fail fast to avoid running expensive script checks when unnecessary.
+    for (unsigned int i = 0; i < txns.size(); ++i) {
+        ATMPResult result(txns[i]);
+        if (!PreChecks(args, result, workspaces[i])) {
+            result.m_accepted = false;
+            m_viewmempool.ClearPackageCaches();
+            return std::vector<ATMPResult> {std::move(result)};
+        }
+        result.m_accepted = true; // Allowed so far
+        m_viewmempool.AddPackageTransaction(txns[i], GetSpendHeight(m_view));
+        results.push_back(result);
+    }
+
+    // Run script checks
+    for (unsigned int i = 0; i < txns.size(); ++i) {
+        // Only compute the precomputed transaction data if we need to verify
+        // scripts (ie, other policy checks pass). We perform the inexpensive
+        // checks first and avoid hashing and signature verification unless those
+        // checks pass, to mitigate CPU exhaustion denial-of-service attacks.
+        PrecomputedTransactionData txdata;
+
+        if (!PolicyScriptChecks(args, results[i], workspaces[i], txdata)) {
+            results[i].m_accepted = false;
+            m_viewmempool.ClearPackageCaches();
+            return std::vector<ATMPResult> {std::move(results[i])};
+        }
+
+        if (!ConsensusScriptChecks(args, results[i], workspaces[i], txdata)) {
+            results[i].m_accepted = false;
+            m_viewmempool.ClearPackageCaches();
+            return std::vector<ATMPResult> {std::move(results[i])};
+        }
+    }
+    m_viewmempool.ClearPackageCaches();
+    return results;
+}
+
 } // anon namespace
 
 /** (try to) add transaction to memory pool with a specified acceptance time **/
@@ -1087,6 +1149,28 @@ bool AcceptToMemoryPool(CTxMemPool& pool, TxValidationState &state, const CTrans
 {
     const CChainParams& chainparams = Params();
     return AcceptToMemoryPoolWithTime(chainparams, pool, state, tx, GetTime(), plTxnReplaced, bypass_limits, test_accept, fee_out);
+}
+
+std::vector<ATMPResult> AcceptPackageToMemoryPool(CTxMemPool& pool, std::vector<const CTransactionRef>& txns, bool test_accept)
+{
+    AssertLockHeld(cs_main);
+    assert(test_accept); // Only allow package accept dry-runs (testmempoolaccept RPC).
+
+    const CChainParams& chainparams = Params();
+    std::vector<COutPoint> coins_to_uncache;
+    MemPoolAccept::ATMPArgs args { chainparams, GetTime(), false, coins_to_uncache, test_accept };
+
+    std::vector<ATMPResult> results = MemPoolAccept(pool).AcceptMultipleTransactions(txns, args);
+
+    // Remove coins that were not present in the coins cache before calling ATMPW;
+    // this is to prevent memory DoS in case we receive a large number of
+    // invalid transactions that attempt to overrun the in-memory coins cache
+    // (`CCoinsViewCache::cacheCoins`).
+
+    for (const COutPoint& hashTx : coins_to_uncache)
+        ::ChainstateActive().CoinsTip().Uncache(hashTx);
+
+    return results;
 }
 
 CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const uint256& hash, const Consensus::Params& consensusParams, uint256& hashBlock)

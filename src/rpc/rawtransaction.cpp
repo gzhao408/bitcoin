@@ -880,8 +880,7 @@ static RPCHelpMan testmempoolaccept()
                 "\nThis checks if the transaction violates the consensus or policy rules.\n"
                 "\nSee sendrawtransaction call.\n",
                 {
-                    {"rawtxs", RPCArg::Type::ARR, RPCArg::Optional::NO, "An array of hex strings of raw transactions.\n"
-            "                                        Length must be one for now.",
+                    {"rawtxs", RPCArg::Type::ARR, RPCArg::Optional::NO, "An array of hex strings of raw transactions.\n",
                         {
                             {"rawtx", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, ""},
                         },
@@ -890,7 +889,7 @@ static RPCHelpMan testmempoolaccept()
                 },
                 RPCResult{
                     RPCResult::Type::ARR, "", "The result of the mempool acceptance test for each raw transaction in the input array.\n"
-                        "Length is exactly one for now.",
+                        "Length is exactly one if any failures occur.",
                     {
                         {RPCResult::Type::OBJ, "", "",
                         {
@@ -922,67 +921,87 @@ static RPCHelpMan testmempoolaccept()
         UniValueType(), // VNUM or VSTR, checked inside AmountFromValue()
     });
 
-    if (request.params[0].get_array().size() != 1) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Array must contain exactly one raw transaction for now");
-    }
+    UniValue transactions = request.params[0].get_array();
 
-    CMutableTransaction mtx;
-    if (!DecodeHexTx(mtx, request.params[0].get_array()[0].get_str())) {
-        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed. Make sure the tx has at least one input.");
-    }
-    CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
-    const uint256& tx_hash = tx->GetHash();
-
+    unsigned int num_txns = transactions.size();
+    UniValue result(UniValue::VARR);
     const CFeeRate max_raw_tx_fee_rate = request.params[1].isNull() ?
                                              DEFAULT_MAX_RAW_TX_FEE_RATE :
                                              CFeeRate(AmountFromValue(request.params[1]));
 
     CTxMemPool& mempool = EnsureMemPool(request.context);
-    int64_t virtual_size = GetVirtualTransactionSize(*tx);
-    CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size);
 
-    UniValue result(UniValue::VARR);
-    UniValue result_0(UniValue::VOBJ);
-    result_0.pushKV("txid", tx_hash.GetHex());
-
-    TxValidationState state;
-    bool test_accept_res;
-    CAmount fee{0};
-    {
-        LOCK(cs_main);
-        test_accept_res = AcceptToMemoryPool(mempool, state, std::move(tx),
-            nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true, &fee);
+    std::vector<const CTransactionRef> txns;
+    // Decode
+    for (unsigned int i = 0; i < num_txns; ++i) {
+        CMutableTransaction mtx;
+        if (!DecodeHexTx(mtx, transactions[i].get_str())) {
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+        }
+        txns.emplace_back(MakeTransactionRef(std::move(mtx)));
     }
-
-    // Check that fee does not exceed maximum fee
-    if (test_accept_res && max_raw_tx_fee && fee > max_raw_tx_fee) {
-        result_0.pushKV("allowed", false);
-        result_0.pushKV("reject-reason", "max-fee-exceeded");
-        result.push_back(std::move(result_0));
-        return result;
-    }
-    result_0.pushKV("allowed", test_accept_res);
-
-    // Only return the fee and vsize if the transaction would pass ATMP.
-    // These can be used to calculate the feerate.
-    if (test_accept_res) {
-        result_0.pushKV("vsize", virtual_size);
-        UniValue fees(UniValue::VOBJ);
-        fees.pushKV("base", ValueFromAmount(fee));
-        result_0.pushKV("fees", fees);
+    // Validation
+    std::vector<ATMPResult> validation_results;
+    
+    if (num_txns == 1) {
+        const CTransactionRef tx = txns[0];
+        TxValidationState state;
+        bool test_accept_res;
+        CAmount fee{0};
+        {
+            LOCK(cs_main);
+            test_accept_res = AcceptToMemoryPool(mempool, state, std::move(tx),
+                nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true, &fee);
+        }
+        validation_results.emplace_back(ATMPResult {tx->GetHash(), test_accept_res, state, fee});
     } else {
-        if (state.IsInvalid()) {
-            if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
-                result_0.pushKV("reject-reason", "missing-inputs");
-            } else {
-                result_0.pushKV("reject-reason", strprintf("%s", state.GetRejectReason()));
-            }
-        } else {
-            result_0.pushKV("reject-reason", state.GetRejectReason());
+        {
+            LOCK(cs_main);
+            validation_results = AcceptPackageToMemoryPool(mempool, txns, true);
         }
     }
 
-    result.push_back(std::move(result_0));
+    for (unsigned int i = 0; i < validation_results.size(); i++) {
+        const CTransactionRef tx = txns[i];
+        int64_t virtual_size = GetVirtualTransactionSize(*tx);
+        CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size);
+
+        UniValue result_i(UniValue::VOBJ);
+        result_i.pushKV("txid", validation_results[i].txid.GetHex());
+
+        const bool test_accept_res = validation_results[i].m_accepted;
+        const TxValidationState state = validation_results[i].m_state;
+        const CAmount fee = validation_results[i].m_fee;
+
+        // Check that fee does not exceed maximum fee
+        if (test_accept_res && max_raw_tx_fee && fee > max_raw_tx_fee) {
+            result_i.pushKV("allowed", false);
+            result_i.pushKV("reject-reason", "max-fee-exceeded");
+            result.push_back(std::move(result_i));
+            break;
+        }
+        result_i.pushKV("allowed", test_accept_res);
+
+        // Only return the fee and vsize if the transaction would pass ATMP.
+        // These can be used to calculate the feerate.
+        if (test_accept_res) {
+            result_i.pushKV("vsize", virtual_size);
+            UniValue fees(UniValue::VOBJ);
+            fees.pushKV("base", ValueFromAmount(fee));
+            result_i.pushKV("fees", fees);
+        } else {
+            if (state.IsInvalid()) {
+                if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
+                    result_i.pushKV("reject-reason", "missing-inputs");
+                } else {
+                    result_i.pushKV("reject-reason", strprintf("%s", state.GetRejectReason()));
+                }
+            } else {
+                result_i.pushKV("reject-reason", state.GetRejectReason());
+            }
+        }
+        result.push_back(std::move(result_i));
+    }
     return result;
 },
     };
