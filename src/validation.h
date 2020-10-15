@@ -211,6 +211,16 @@ struct MempoolAcceptResult {
 MempoolAcceptResult AcceptToMemoryPool(CTxMemPool& pool, const CTransactionRef &tx,
                         bool bypass_limits, bool test_accept=false) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+/**
+* Atomically test acceptance of multiple transactions.
+* If validation fails for any individual transaction, this returns
+* a single MempoolAcceptResult with the failure. If all successful,
+* returns MempoolAcceptResults for each transaction in the same
+* order they were passed in.
+*/
+std::vector<MempoolAcceptResult> ProcessNewPackage(CTxMemPool& pool, std::vector<CTransactionRef>& txns,
+                        bool test_accept) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
 /** Get the BIP9 state for a given deployment at the current tip. */
 ThresholdState VersionBitsTipState(const Consensus::Params& params, Consensus::DeploymentPos pos);
 
