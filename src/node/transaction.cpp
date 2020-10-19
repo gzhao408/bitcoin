@@ -50,25 +50,30 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
     }
     if (!node.mempool->exists(hashTx)) {
         // Transaction is not already in the mempool.
-        TxValidationState state;
         if (max_tx_fee > 0) {
             // First, call ATMP with test_accept and check the fee. If ATMP
             // fails here, return error immediately.
-            CAmount fee{0};
-            if (!AcceptToMemoryPool(*node.mempool, state, tx,
-                nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true, &fee)) {
+            const MempoolAcceptResult result = AcceptToMemoryPool(*node.mempool, tx, false, /* test_accept */ true);
+            if (std::holds_alternative<TxValidationState>(result)) {
+                const TxValidationState state = std::get<TxValidationState>(result);
                 return HandleATMPError(state, err_string);
-            } else if (fee > max_tx_fee) {
+            }
+            // Transaction passed validation.
+            Assume(std::holds_alternative<MempoolAcceptSuccess>(result));
+            const CAmount fee = std::get<MempoolAcceptSuccess>(result).m_base_fees;
+            if (fee > max_tx_fee) {
                 return TransactionError::MAX_FEE_EXCEEDED;
             }
         }
         // Try to submit the transaction to the mempool.
-        if (!AcceptToMemoryPool(*node.mempool, state, tx,
-                nullptr /* plTxnReplaced */, false /* bypass_limits */)) {
+        const MempoolAcceptResult result = AcceptToMemoryPool(*node.mempool, tx, false);
+        if (std::holds_alternative<TxValidationState>(result)) {
+            const TxValidationState state = std::get<TxValidationState>(result);
             return HandleATMPError(state, err_string);
         }
 
         // Transaction was accepted to the mempool.
+        Assume(std::holds_alternative<MempoolAcceptSuccess>(result));
 
         if (wait_callback) {
             // For transactions broadcast from outside the wallet, make sure

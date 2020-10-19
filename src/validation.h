@@ -12,6 +12,7 @@
 
 #include <amount.h>
 #include <coins.h>
+#include <consensus/validation.h>
 #include <crypto/common.h> // for ReadLE64
 #include <fs.h>
 #include <optional.h>
@@ -32,6 +33,7 @@
 #include <stdint.h>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 class CChainState;
@@ -45,7 +47,6 @@ class CConnman;
 class CScriptCheck;
 class CTxMemPool;
 class ChainstateManager;
-class TxValidationState;
 struct ChainTxData;
 
 struct DisconnectedBlockTransactions;
@@ -187,12 +188,18 @@ void UnlinkPrunedFiles(const std::set<int>& setFilesToPrune);
 /** Prune block files up to a given height */
 void PruneBlockFilesManual(int nManualPruneHeight);
 
-/** (try to) add transaction to memory pool
- * plTxnReplaced will be appended to with all transactions replaced from mempool
- * @param[out] fee_out optional argument to return tx fee to the caller **/
-bool AcceptToMemoryPool(CTxMemPool& pool, TxValidationState &state, const CTransactionRef &tx,
-                        std::list<CTransactionRef>* plTxnReplaced,
-                        bool bypass_limits, bool test_accept=false, CAmount* fee_out=nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+struct MempoolAcceptSuccess {
+    std::list<CTransactionRef> m_replaced_transactions;
+    CAmount m_base_fees;
+};
+
+using MempoolAcceptResult = std::variant<MempoolAcceptSuccess, TxValidationState>;
+
+/**
+ * (Try to) add a transaction to the memory pool.
+ */
+MempoolAcceptResult AcceptToMemoryPool(CTxMemPool& pool, const CTransactionRef &tx,
+                        bool bypass_limits, bool test_accept=false) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 /** Get the BIP9 state for a given deployment at the current tip. */
 ThresholdState VersionBitsTipState(const Consensus::Params& params, Consensus::DeploymentPos pos);

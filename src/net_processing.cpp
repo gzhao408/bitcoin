@@ -2177,10 +2177,9 @@ void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
         if (orphan_it == mapOrphanTransactions.end()) continue;
 
         const CTransactionRef porphanTx = orphan_it->second.tx;
-        TxValidationState state;
-        std::list<CTransactionRef> removed_txn;
+        const MempoolAcceptResult result = AcceptToMemoryPool(m_mempool, porphanTx, false /* bypass_limits */);
 
-        if (AcceptToMemoryPool(m_mempool, state, porphanTx, &removed_txn, false /* bypass_limits */)) {
+        if (std::holds_alternative<MempoolAcceptSuccess>(result)) {
             LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
             RelayTransaction(orphanHash, porphanTx->GetWitnessHash(), m_connman);
             for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
@@ -2192,12 +2191,14 @@ void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
                 }
             }
             EraseOrphanTx(orphanHash);
-            for (const CTransactionRef& removedTx : removed_txn) {
+            for (const CTransactionRef& removedTx : std::get<MempoolAcceptSuccess>(result).m_replaced_transactions) {
                 AddToCompactExtraTransactions(removedTx);
             }
             break;
-        } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
-            if (state.IsInvalid()) {
+        } else {
+            Assume(std::holds_alternative<TxValidationState>(result));
+            const TxValidationState state = std::get<TxValidationState>(result);
+            if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS && state.IsInvalid()) {
                 LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s from peer=%d. %s\n",
                     orphanHash.ToString(),
                     orphan_it->second.fromPeer,
@@ -3183,10 +3184,9 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             return;
         }
 
-        TxValidationState state;
-        std::list<CTransactionRef> lRemovedTxn;
+        const MempoolAcceptResult result = AcceptToMemoryPool(m_mempool, ptx, false /* bypass_limits */);
 
-        if (AcceptToMemoryPool(m_mempool, state, ptx, &lRemovedTxn, false /* bypass_limits */)) {
+        if (std::holds_alternative<MempoolAcceptSuccess>(result)) {
             m_mempool.check(&::ChainstateActive().CoinsTip());
             // As this version of the transaction was acceptable, we can forget about any
             // requests for it.
@@ -3209,14 +3209,16 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 tx.GetHash().ToString(),
                 m_mempool.size(), m_mempool.DynamicMemoryUsage() / 1000);
 
-            for (const CTransactionRef& removedTx : lRemovedTxn) {
+            for (const CTransactionRef& removedTx : std::get<MempoolAcceptSuccess>(result).m_replaced_transactions) {
                 AddToCompactExtraTransactions(removedTx);
             }
 
             // Recursively process any orphan transactions that depended on this one
             ProcessOrphanTx(peer->m_orphan_work_set);
         }
-        else if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS)
+        Assume(std::holds_alternative<TxValidationState>(result));
+        const TxValidationState state = std::get<TxValidationState>(result);
+        if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS)
         {
             bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
 
