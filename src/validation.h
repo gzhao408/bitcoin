@@ -12,6 +12,7 @@
 
 #include <amount.h>
 #include <coins.h>
+#include <consensus/validation.h>
 #include <crypto/common.h> // for ReadLE64
 #include <fs.h>
 #include <optional.h>
@@ -45,7 +46,6 @@ class CScriptCheck;
 class CBlockPolicyEstimator;
 class CTxMemPool;
 class ChainstateManager;
-class TxValidationState;
 struct ChainTxData;
 
 struct DisconnectedBlockTransactions;
@@ -202,6 +202,14 @@ void PruneBlockFilesManual(int nManualPruneHeight);
 bool AcceptToMemoryPool(CTxMemPool& pool, TxValidationState &state, const CTransactionRef &tx,
                         std::list<CTransactionRef>* plTxnReplaced,
                         bool bypass_limits, bool test_accept=false, CAmount* fee_out=nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+/** Per-transaction result of calling ATMP */
+struct ATMPResult {
+    bool m_accepted = false;
+    TxValidationState m_state = TxValidationState{};
+    std::list<CTransactionRef> m_replaced_transactions = std::list<CTransactionRef>{};
+    CAmount m_fee = CAmount(0);
+};
 
 /** Get the BIP9 state for a given deployment at the current tip. */
 ThresholdState VersionBitsTipState(const Consensus::Params& params, Consensus::DeploymentPos pos);
