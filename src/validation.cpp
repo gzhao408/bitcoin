@@ -253,10 +253,9 @@ bool TestLockPointValidity(const LockPoints* lp)
     return true;
 }
 
-bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flags, LockPoints* lp, bool useExistingLockPoints)
+bool CheckSequenceLocks(CCoinsView& view, const CTransaction& tx, int flags, LockPoints* lp, bool useExistingLockPoints)
 {
     AssertLockHeld(cs_main);
-    AssertLockHeld(pool.cs);
 
     CBlockIndex* tip = ::ChainActive().Tip();
     assert(tip != nullptr);
@@ -279,13 +278,12 @@ bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flag
     }
     else {
         // CoinsTip() contains the UTXO set for ::ChainActive().Tip()
-        CCoinsViewMemPool viewMemPool(&::ChainstateActive().CoinsTip(), pool);
         std::vector<int> prevheights;
         prevheights.resize(tx.vin.size());
         for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
             const CTxIn& txin = tx.vin[txinIndex];
             Coin coin;
-            if (!viewMemPool.GetCoin(txin.prevout, coin)) {
+            if (!view.GetCoin(txin.prevout, coin)) {
                 return error("%s: Missing input", __func__);
             }
             if (coin.nHeight == MEMPOOL_HEIGHT) {
@@ -323,6 +321,15 @@ bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flag
         }
     }
     return EvaluateSequenceLocks(index, lockPair);
+}
+
+bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flags, LockPoints* lp, bool useExistingLockPoints)
+{
+    AssertLockHeld(cs_main);
+    AssertLockHeld(pool.cs);
+    CCoinsViewMemPool viewMemPool(&::ChainstateActive().CoinsTip(), pool);
+    CCoinsView& view(viewMemPool);
+    return CheckSequenceLocks(view, tx, flags, lp, useExistingLockPoints);
 }
 
 // Returns the script flags which should be checked for a given block
@@ -673,7 +680,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, ATMPResult& result, Workspace& ws)
     // be mined yet.
     // Must keep pool.cs for this unless we change CheckSequenceLocks to take a
     // CoinsViewCache instead of create its own
-    if (!CheckSequenceLocks(m_pool, tx, STANDARD_LOCKTIME_VERIFY_FLAGS, &lp))
+    if (!CheckSequenceLocks(m_view, tx, STANDARD_LOCKTIME_VERIFY_FLAGS, &lp))
         return state.Invalid(TxValidationResult::TX_PREMATURE_SPEND, "non-BIP68-final");
 
     CAmount nFees = 0;
