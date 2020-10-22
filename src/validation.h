@@ -241,7 +241,13 @@ bool CheckFinalTx(const CTransaction &tx, int flags = -1) EXCLUSIVE_LOCKS_REQUIR
 bool TestLockPointValidity(const LockPoints* lp) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 /**
+ * A wrapper for CheckSequenceLocks that creates a CoinsView from the mempool.
+*/
+bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flags, LockPoints* lp = nullptr, bool useExistingLockPoints = false) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, pool.cs);
+
+/**
  * Check if transaction will be BIP 68 final in the next block to be created.
+ * Accepts any CCoinsView and uses the Coin heights provided by the view.
  *
  * Simulates calling SequenceLocks() with data from the tip of the current active chain.
  * Optionally stores in LockPoints the resulting height and time calculated and the hash
@@ -251,7 +257,8 @@ bool TestLockPointValidity(const LockPoints* lp) EXCLUSIVE_LOCKS_REQUIRED(cs_mai
  *
  * See consensus/consensus.h for flag definitions.
  */
-bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flags, LockPoints* lp = nullptr, bool useExistingLockPoints = false) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, pool.cs);
+bool CheckSequenceLocks(const CTxMemPool& pool, CCoinsView& view, const CTransaction& tx, int flags,
+    LockPoints* lp = nullptr, bool useExistingLockPoints = false) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, pool.cs);
 
 /**
  * Closure representing one script verification
