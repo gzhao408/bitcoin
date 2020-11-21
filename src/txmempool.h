@@ -899,10 +899,15 @@ class CCoinsViewMemPool : public CCoinsViewBacked
 {
 protected:
     const CTxMemPool& mempool;
+    std::map<uint256, const CTransactionRef> cache_to_add;
+    std::map<uint256, const CTransactionRef> cache_to_remove;
 
 public:
     CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn);
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
+    void AddTransaction(const CTransactionRef& tx) {
+        cache_to_add.emplace(tx->GetHash(), tx);
+    }
 };
 
 /**

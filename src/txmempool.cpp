@@ -908,6 +908,12 @@ bool CCoinsViewMemPool::GetCoin(const COutPoint &outpoint, Coin &coin) const {
     // conflict with the underlying cache, and it cannot have pruned entries (as it contains full)
     // transactions. First checking the underlying cache risks returning a pruned entry instead.
     CTransactionRef ptx = mempool.get(outpoint.hash);
+    if (!ptx) {
+        // Also try the cached txns
+        if (auto it = cache_to_add.find(outpoint.hash); it != cache_to_add.end()) {
+            ptx = it->second;
+        }
+    }
     if (ptx) {
         if (outpoint.n < ptx->vout.size()) {
             coin = Coin(ptx->vout[outpoint.n], MEMPOOL_HEIGHT, false);
