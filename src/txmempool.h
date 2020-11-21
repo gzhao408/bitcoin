@@ -899,10 +899,24 @@ class CCoinsViewMemPool : public CCoinsViewBacked
 {
 protected:
     const CTxMemPool& mempool;
+    std::map<COutPoint, Coin> cache_package_add;
+    std::map<COutPoint, Coin> cache_package_remove;
+    std::set<uint256> package_txids;
 
 public:
     CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn);
-    bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
+    bool GetCoin(const COutPoint& outpoint, Coin& coin) const override;
+    void AddPackageTransaction(const CTransactionRef& tx, int nHeight);
+    void ClearPackageCaches() {
+        cache_package_add.clear();
+        cache_package_remove.clear();
+    }
+    bool PackageContains(uint256 txid) const {
+        return package_txids.count(txid) != 0;
+    }
+    bool PackageSpends(const COutPoint& outpoint) const {
+        return cache_package_remove.count(outpoint) != 0;
+    }
 };
 
 /**
