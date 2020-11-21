@@ -84,7 +84,6 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         scriptPubKey = None
         txid = first_coin['txid']
         chain = []
-        chain_txids = []
         value = Decimal("50.0")
         testres_single = []
 
@@ -92,20 +91,25 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             value -= Decimal("0.0001") # Deduct reasonable fee
             (txid, txhex, scriptPubKey) = self.chain_transaction(txid, value, scriptPubKey)
             chain.append(txhex)
-            chain_txids.append(txid)
             testres = node.testmempoolaccept([txhex])
             testres_single.append(testres)
 
-        self.log.info("Testmempoolaccept should succeed for the first transaction, and the other two should be seen as orphans")
-        assert self.nodes[0].testmempoolaccept([chain[0]])[0]['allowed']
-        self.check_mempool_result(
-            result_expected=[{'txid': chain_txids[1], 'allowed': False, 'reject-reason': 'missing-inputs'}],
-            rawtxs=[chain[1]],
-        )
-        self.check_mempool_result(
-            result_expected=[{'txid': chain_txids[2], 'allowed': False, 'reject-reason': 'missing-inputs'}],
-            rawtxs=[chain[2]],
-        )
+        self.log.info("Testmempoolaccept with entire package")
+        testres_multiple = node.testmempoolaccept(rawtxs=chain)
+
+        testres_single_dep = []
+        self.log.info("Test accept and then submit each one individually, which should be identical to package testaccept")
+        for rawtx in chain:
+            tx = CTransaction()
+            tx.deserialize(BytesIO(hex_str_to_bytes(rawtx)))
+            testres = node.testmempoolaccept([rawtx])
+            testres_single_dep.append(testres)
+            # Submit the transaction so its child should have no problem validating
+            node.sendrawtransaction(rawtx)
+
+        # assert that they're the same
+        for i in range(3):
+            assert_equal(testres_single_dep[i][0], testres_multiple[i])
 
     def test_single(self):
         node = self.nodes[0]
