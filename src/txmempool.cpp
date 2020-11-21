@@ -904,19 +904,48 @@ bool CTxMemPool::HasNoInputsOf(const CTransaction &tx) const
 CCoinsViewMemPool::CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn) : CCoinsViewBacked(baseIn), mempool(mempoolIn) { }
 
 bool CCoinsViewMemPool::GetCoin(const COutPoint &outpoint, Coin &coin) const {
-    // If an entry in the mempool exists, always return that one, as it's guaranteed to never
-    // conflict with the underlying cache, and it cannot have pruned entries (as it contains full)
-    // transactions. First checking the underlying cache risks returning a pruned entry instead.
-    CTransactionRef ptx = mempool.get(outpoint.hash);
-    if (ptx) {
-        if (outpoint.n < ptx->vout.size()) {
-            coin = Coin(ptx->vout[outpoint.n], MEMPOOL_HEIGHT, false);
-            return true;
-        } else {
-            return false;
-        }
+    // Check to see if the inputs are spent by a tx being considered for a package.
+    // It's possible that a package spends entries in the mempool, and this would
+    // only be reflected in the cache_package_remove.
+    if (auto it = cache_package_remove.find(outpoint); it != cache_package_remove.end()) {
+        coin = it->second;
+        return false;
     }
-    return base->GetCoin(outpoint, coin);
+
+    // Check to see if the inputs are in a tx being considered for a package.
+    // These Coins would not be available in the mempool or underlying CoinsView.
+    if (auto it = cache_package_add.find(outpoint); it != cache_package_add.end()) {
+        coin = it->second;
+        return true;
+    }
+
+    // If an entry in the mempool exists, always return that one, as it's guaranteed to never
+    // conflict with the underlying cache, and it cannot have spent entries.
+    CTransactionRef ptx = mempool.get(outpoint.hash);
+
+    // Check the underlying CoinsView.
+    if (!ptx) return base->GetCoin(outpoint, coin);
+
+    // "Create" a Coin from a mempool transaction output.
+    if (outpoint.n < ptx->vout.size()) {
+        coin = Coin(ptx->vout[outpoint.n], MEMPOOL_HEIGHT, false);
+        return true;
+    }
+    return false;
+}
+
+void CCoinsViewMemPool::AddPackageTransaction(const CTransactionRef& tx) {
+    package_txids.insert(tx->GetHash());
+    // Coins spent by this transaction
+    for (auto input : tx->vin) {
+        Coin spent_coin;
+        GetCoin(input.prevout, spent_coin);
+        cache_package_remove.emplace(input.prevout, spent_coin);
+    }
+    // Coins added by this transaction
+    for (unsigned int i = 0; i < tx->vout.size(); ++i) {
+        cache_package_add.emplace(COutPoint(tx->GetHash(), i), Coin(tx->vout[i], MEMPOOL_HEIGHT, tx->IsCoinBase()));
+    }
 }
 
 size_t CTxMemPool::DynamicMemoryUsage() const {
