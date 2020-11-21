@@ -673,11 +673,6 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, ATMPResult& result, Workspace& ws)
     // Bring the best block into scope
     m_view.GetBestBlock();
 
-    // we have all inputs cached now, so switch back to dummy (to protect
-    // against bugs where we pull more inputs from disk that miss being added
-    // to coins_to_uncache)
-    m_view.SetBackend(m_dummy);
-
     // Only accept BIP68 sequence locked transactions that can be mined in the next
     // block; we don't want our mempool filled up with transactions that can't
     // be mined yet.
