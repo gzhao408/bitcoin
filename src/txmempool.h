@@ -880,15 +880,28 @@ public:
  * It also allows you to sign a double-spend directly in
  * signrawtransactionwithkey and signrawtransactionwithwallet,
  * as long as the conflicting transaction is not yet confirmed.
+ * It can also serve as temporary scratch space for some set
+ * of transactions (i.e. as a member of MemPoolAccept to validate
+ * packages) and tracks the Coins added and removed by them.
  */
 class CCoinsViewMemPool : public CCoinsViewBacked
 {
 protected:
     const CTxMemPool& mempool;
+    std::map<COutPoint, Coin> cache_package_add;
+    std::map<COutPoint, Coin> cache_package_remove;
+    std::set<uint256> package_txids;
 
 public:
     CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn);
-    bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
+    bool GetCoin(const COutPoint& outpoint, Coin& coin) const override;
+    void AddPackageTransaction(const CTransactionRef& tx);
+    bool PackageContains(uint256 txid) const {
+        return package_txids.count(txid) != 0;
+    }
+    bool PackageSpends(const COutPoint& outpoint) const {
+        return cache_package_remove.count(outpoint) != 0;
+    }
 };
 
 /**
