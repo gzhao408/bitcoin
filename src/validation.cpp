@@ -640,6 +640,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     LockPoints lp;
     m_view.SetBackend(m_viewmempool);
+    m_viewmempool.SetBackend(::ChainstateActive().CoinsTip());
 
     const CCoinsViewCache& coins_cache = ::ChainstateActive().CoinsTip();
     // do all inputs exist?
@@ -670,7 +671,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // we have all inputs cached now, so switch back to dummy (to protect
     // against bugs where we pull more inputs from disk that miss being added
     // to coins_to_uncache)
-    m_view.SetBackend(m_dummy);
+    m_viewmempool.SetBackend(m_dummy);
 
     // Only accept BIP68 sequence locked transactions that can be mined in the next
     // block; we don't want our mempool filled up with transactions that can't
