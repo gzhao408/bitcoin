@@ -8,6 +8,7 @@ from decimal import Decimal
 from io import BytesIO
 import math
 
+from test_framework.address import ADDRESS_BCRT1_P2WSH_OP_TRUE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.key import ECKey
 from test_framework.messages import (
@@ -55,6 +56,11 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getmempoolinfo()['size'], self.mempool_size)  # Must not change mempool state
 
     def run_test(self):
+        self.test_single()
+        self.test_chain()
+        self.test_conflicting()
+
+    def test_single(self):
         node = self.nodes[0]
 
         self.log.info('Start with empty mempool, and 200 blocks')
@@ -65,7 +71,6 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
 
         self.log.info('Should not accept garbage to testmempoolaccept')
         assert_raises_rpc_error(-3, 'Expected type array, got string', lambda: node.testmempoolaccept(rawtxs='ff00baar'))
-        assert_raises_rpc_error(-8, 'Array must contain exactly one raw transaction for now', lambda: node.testmempoolaccept(rawtxs=['ff00baar', 'ff22']))
         assert_raises_rpc_error(-22, 'TX decode failed', lambda: node.testmempoolaccept(rawtxs=['ff00baar']))
 
         self.log.info('A transaction already in the blockchain')
@@ -331,6 +336,91 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             rawtxs=[tx.serialize().hex()],
             maxfeerate=0,
         )
+
+    def chain_transaction(self, parent_txid, value, parent_scriptPubKey=None):
+        """Build a transaction that spends parent_txid:vout. Return tuple (transaction id, raw hex)."""
+        inputs = [{'txid' : parent_txid, 'vout' : 0}]
+        outputs = {self.nodes[0].getnewaddress(): value}
+        rawtx = self.nodes[0].createrawtransaction(inputs, outputs)
+        prevtxs = [{
+            'txid': parent_txid,
+            'vout': 0,
+            'scriptPubKey': parent_scriptPubKey,
+            'amount': value + Decimal("0.0001"),
+        }] if parent_scriptPubKey else None
+        signedtx = self.nodes[0].signrawtransactionwithwallet(hexstring=rawtx, prevtxs=prevtxs)
+        tx = CTransaction()
+        assert signedtx['complete']
+        tx.deserialize(BytesIO(hex_str_to_bytes(signedtx['hex'])))
+        return (tx.rehash(), signedtx['hex'], tx.vout[0].scriptPubKey.hex())
+
+    def test_chain(self):
+        node = self.nodes[0]
+        self.mempool_size = 0
+        first_coin = node.listunspent(query_options={'minimumAmount': 50}).pop()
+
+        self.log.info("Create a chain of 3 transactions")
+        scriptPubKey = None
+        txid = first_coin['txid']
+        chain = []
+        value = Decimal("50.0")
+        testres_single = []
+
+        for _ in range(3):
+            value -= Decimal("0.0001") # Deduct reasonable fee
+            (txid, txhex, scriptPubKey) = self.chain_transaction(txid, value, scriptPubKey)
+            chain.append(txhex)
+            testres = node.testmempoolaccept([txhex])
+            testres_single.append(testres)
+
+        self.log.info("Testmempoolaccept with entire package")
+        testres_multiple = node.testmempoolaccept(rawtxs=chain)
+
+        testres_single_dep = []
+        self.log.info("Test accept and then submit each one individually, which should be identical to package testaccept")
+        for rawtx in chain:
+            tx = CTransaction()
+            tx.deserialize(BytesIO(hex_str_to_bytes(rawtx)))
+            testres = node.testmempoolaccept([rawtx])
+            testres_single_dep.append(testres)
+            # Submit the transaction so its child should have no problem validating
+            node.sendrawtransaction(rawtx)
+
+        # assert that they're the same
+        for i in range(3):
+            assert_equal(testres_single_dep[i][0], testres_multiple[i])
+
+        # Test conflict chain
+    
+    def test_conflicting(self):
+        node = self.nodes[0]
+        self.mempool_size = 0
+        prevtx = node.listunspent(query_options={'minimumAmount': 50}).pop()
+        inputs = [{'txid' : prevtx['txid'], 'vout' : 0}]
+        output1 = {node.get_deterministic_priv_key().address: 50 - 0.00125}
+        output2 = {ADDRESS_BCRT1_P2WSH_OP_TRUE: 50 - 0.00125}
+        privkeys=[self.nodes[0].get_deterministic_priv_key().key]
+        rawtx1 = node.createrawtransaction(inputs, output1)
+        rawtx2 = node.createrawtransaction(inputs, output2)
+        signedtx1 = node.signrawtransactionwithkey(hexstring=rawtx1, privkeys=privkeys)
+        signedtx2 = node.signrawtransactionwithkey(hexstring=rawtx2, privkeys=privkeys)
+        tx1 = CTransaction()
+        tx1.deserialize(BytesIO(hex_str_to_bytes(signedtx1['hex'])))
+        tx2 = CTransaction()
+        tx2.deserialize(BytesIO(hex_str_to_bytes(signedtx2['hex'])))
+        assert signedtx1['complete']
+        assert signedtx2['complete']
+        # Ensure the transactions are valid by themselves
+        assert node.testmempoolaccept([signedtx1['hex']])[0]['allowed']
+        assert node.testmempoolaccept([signedtx2['hex']])[0]['allowed']
+
+        self.log.info("Test duplicate transactions in the same package")
+        testres = node.testmempoolaccept([signedtx1['hex'], signedtx1['hex']])
+        assert_equal(testres, [{'txid': tx1.rehash(), 'allowed': False, 'reject-reason': 'txn-already-known'}])
+
+        self.log.info("Test conflicting transactions in the same package")
+        testres = node.testmempoolaccept([signedtx1['hex'], signedtx2['hex']])
+        assert_equal(testres, [{'txid': tx2.rehash(), 'allowed': False, 'reject-reason': 'missing-inputs'}])
 
 
 if __name__ == '__main__':
