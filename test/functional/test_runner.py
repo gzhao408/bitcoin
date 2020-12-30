@@ -206,6 +206,7 @@ BASE_SCRIPTS = [
     'feature_rbf.py',
     'mempool_packages.py',
     'mempool_package_onemore.py',
+    'rpc_packages.py',
     'rpc_createmultisig.py',
     'rpc_createmultisig.py --descriptors',
     'feature_versionbits_warning.py',
