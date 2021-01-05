@@ -649,6 +649,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, MempoolAcceptResult& result, Works
             assert(txFrom->GetHash() == txin.prevout.hash);
             assert(txFrom->vout.size() > txin.prevout.n);
             assert(txFrom->vout[txin.prevout.n] == coin.out);
+        } else if (m_viewmempool.PackageContains(txin.prevout.hash)) {
+            // This input is provided by a transaction we are
+            // considering for a package.
         } else {
             const Coin& coinFromDisk = ::ChainstateActive().CoinsTip().AccessCoin(txin.prevout);
             assert(!coinFromDisk.IsSpent());
