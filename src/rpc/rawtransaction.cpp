@@ -992,12 +992,8 @@ static RPCHelpMan testmempoolaccept()
         result_0.pushKV("txid", validation_results[0].txid.GetHex());
         result_0.pushKV("allowed", false);
         const TxValidationState state = validation_results[0].m_state;
-        if (state.IsInvalid()) {
-            if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
-                result_0.pushKV("reject-reason", "missing-inputs");
-            } else {
-                result_0.pushKV("reject-reason", strprintf("%s", state.GetRejectReason()));
-            }
+        if (state.IsInvalid() && state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
+            result_0.pushKV("reject-reason", "missing-inputs");
         } else {
             result_0.pushKV("reject-reason", state.GetRejectReason());
         }
