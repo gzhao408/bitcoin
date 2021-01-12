@@ -177,6 +177,7 @@ class RPCPackagesTest(BitcoinTestFramework):
         node.sendrawtransaction(signed_replaceable_tx["hex"])
         testres_rbf = node.testmempoolaccept(self.independent_txns_hex + [signed_replacement_tx["hex"]])
         testres_replacement = testres_replaceable[0]
+        testres_replacement["replaced-transactions"] = [testres_replaceable[0]["txid"]]
         testres_replacement["txid"] = replacement_tx.rehash()
         testres_replacement["fees"]["base"] = Decimal(str(2 * fee))
         assert_equal(testres_rbf, self.independent_txns_testres + [testres_replacement])

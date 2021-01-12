@@ -895,6 +895,10 @@ static RPCHelpMan testmempoolaccept()
                             {RPCResult::Type::STR_HEX, "txid", "The transaction hash in hex"},
                             {RPCResult::Type::BOOL, "allowed", "If the mempool allows this tx to be inserted"},
                             {RPCResult::Type::NUM, "vsize", "Virtual transaction size as defined in BIP 141. This is different from actual serialized size for witness transactions as witness data is discounted (only present when 'allowed' is true)"},
+                            {RPCResult::Type::ARR, "replaced-transactions", "The txids of transaction(s) that this transaction would replace (only present when 'allowed' is true)",
+                            {
+                                {RPCResult::Type::STR_HEX, "", ""},
+                            }},
                             {RPCResult::Type::OBJ, "fees", "Transaction fees (only present if 'allowed' is true)",
                             {
                                 {RPCResult::Type::STR_AMOUNT, "base", "transaction fee in " + CURRENCY_UNIT},
@@ -980,6 +984,12 @@ static RPCHelpMan testmempoolaccept()
             } else {
                 result_inner.pushKV("allowed", true);
                 result_inner.pushKV("vsize", virtual_size);
+                UniValue replaced_transactions(UniValue::VARR);
+                for (auto tx: validation_results[i].m_replaced_transactions) {
+                    UniValue replaced_tx(UniValue::VSTR, tx->GetHash().GetHex());
+                    replaced_transactions.push_back(replaced_tx);
+                }
+                result_inner.pushKV("replaced-transactions", replaced_transactions);
                 UniValue fees(UniValue::VOBJ);
                 fees.pushKV("base", ValueFromAmount(fee));
                 result_inner.pushKV("fees", fees);

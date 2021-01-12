@@ -867,6 +867,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, MempoolAcceptResult& result, Works
             for (CTxMemPool::txiter it : allConflicting) {
                 nConflictingFees += it->GetModifiedFee();
                 nConflictingSize += it->GetTxSize();
+                if (args.m_test_accept) {
+                    result.m_replaced_transactions.push_back(MakeTransactionRef(it->GetTx()));
+                }
             }
         } else {
             return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "too many potential replacements",
