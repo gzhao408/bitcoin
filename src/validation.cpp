@@ -463,7 +463,7 @@ public:
         const CChainParams& m_chainparams;
         TxValidationState &m_state;
         const int64_t m_accept_time;
-        std::list<CTransactionRef>* m_replaced_transactions;
+        std::list<CTransactionRef> m_replaced_transactions;
         const bool m_bypass_limits;
         /*
          * Return any outpoints which were not previously present in the coins
@@ -474,7 +474,7 @@ public:
          */
         std::vector<COutPoint>& m_coins_to_uncache;
         const bool m_test_accept;
-        CAmount* m_fee_out;
+        CAmount m_fee_out;
     };
 
     // Single transaction acceptance
@@ -686,10 +686,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return false; // state filled in by CheckTxInputs
     }
 
-    // If fee_out is passed, return the fee to the caller
-    if (args.m_fee_out) {
-        *args.m_fee_out = nFees;
-    }
+    args.m_fee_out = nFees;
 
     // Check for non-standard pay-to-script-hash in inputs
     const auto& params = args.m_chainparams.GetConsensus();
@@ -1005,8 +1002,7 @@ bool MemPoolAccept::Finalize(ATMPArgs& args, Workspace& ws)
                 hash.ToString(),
                 FormatMoney(nModifiedFees - nConflictingFees),
                 (int)entry->GetTxSize() - (int)nConflictingSize);
-        if (args.m_replaced_transactions)
-            args.m_replaced_transactions->push_back(it->GetSharedTx());
+        args.m_replaced_transactions.push_back(it->GetSharedTx());
     }
     m_pool.RemoveStaged(allConflicting, false, MemPoolRemovalReason::REPLACED);
 
@@ -1066,7 +1062,9 @@ static bool AcceptToMemoryPoolWithTime(const CChainParams& chainparams, CTxMemPo
                         bool bypass_limits, bool test_accept, CAmount* fee_out=nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     std::vector<COutPoint> coins_to_uncache;
-    MemPoolAccept::ATMPArgs args { chainparams, state, nAcceptTime, plTxnReplaced, bypass_limits, coins_to_uncache, test_accept, fee_out };
+    CAmount fee = 0;
+    std::list<CTransactionRef> m_replaced_transactions;
+    MemPoolAccept::ATMPArgs args { chainparams, state, nAcceptTime, m_replaced_transactions, bypass_limits, coins_to_uncache, test_accept, fee };
     bool res = MemPoolAccept(pool).AcceptSingleTransaction(tx, args);
     if (!res) {
         // Remove coins that were not present in the coins cache before calling ATMPW;
@@ -1080,6 +1078,8 @@ static bool AcceptToMemoryPoolWithTime(const CChainParams& chainparams, CTxMemPo
     // After we've (potentially) uncached entries, ensure our coins cache is still within its size limits
     BlockValidationState state_dummy;
     ::ChainstateActive().FlushStateToDisk(chainparams, state_dummy, FlushStateMode::PERIODIC);
+    if (fee_out) *fee_out = fee;
+    if (plTxnReplaced) *plTxnReplaced = m_replaced_transactions;
     return res;
 }
 
