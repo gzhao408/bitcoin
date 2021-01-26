@@ -971,12 +971,8 @@ static RPCHelpMan testmempoolaccept()
         fees.pushKV("base", ValueFromAmount(fee));
         result_0.pushKV("fees", fees);
     } else {
-        if (state.IsInvalid()) {
-            if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
-                result_0.pushKV("reject-reason", "missing-inputs");
-            } else {
-                result_0.pushKV("reject-reason", strprintf("%s", state.GetRejectReason()));
-            }
+        if (state.IsInvalid() && state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
+            result_0.pushKV("reject-reason", "missing-inputs");
         } else {
             result_0.pushKV("reject-reason", state.GetRejectReason());
         }
