@@ -189,13 +189,17 @@ void PruneBlockFilesManual(int nManualPruneHeight);
 * Validation result for a single transaction mempool acceptance.
 */
 struct MempoolAcceptResult {
-    /** Used to indicate the results of mempool validation,
-    * including the possibility of unfinished validation.
+    /** Used to indicate the results of mempool validation.
+    * It's possible for a result to be unknown in the case of
+    * package validation when an earlier tx fails and validation
+    * is terminated early. See ResultType::UNFINISHED.
     */
     enum class ResultType {
         VALID, //!> Fully validated, valid.
         INVALID, //!> Invalid.
+        UNFINISHED, //!> Not fully validated.
     };
+    const CTransaction& m_tx;
     const ResultType m_result_type;
     const TxValidationState m_state;
 
@@ -206,15 +210,15 @@ struct MempoolAcceptResult {
     const std::optional<CAmount> m_base_fees;
 
     /** Constructor for failure case */
-    explicit MempoolAcceptResult(TxValidationState state)
-        : m_result_type(ResultType::INVALID),
+    explicit MempoolAcceptResult(const CTransaction& tx, TxValidationState state, bool finished=true)
+        : m_tx(tx), m_result_type(finished ? ResultType::INVALID : ResultType::UNFINISHED),
         m_state(state), m_replaced_transactions(nullopt), m_base_fees(nullopt) {
             Assume(!state.IsValid()); // Can be invalid or error
         }
 
     /** Constructor for success case */
-    explicit MempoolAcceptResult(std::list<CTransactionRef>&& replaced_txns, CAmount fees)
-        : m_result_type(ResultType::VALID), m_state{},
+    explicit MempoolAcceptResult(const CTransaction& tx, std::list<CTransactionRef>&& replaced_txns, CAmount fees)
+        : m_tx(tx), m_result_type(ResultType::VALID), m_state{},
         m_replaced_transactions(std::move(replaced_txns)), m_base_fees(fees) {}
 };
 
@@ -225,6 +229,15 @@ struct MempoolAcceptResult {
  */
 MempoolAcceptResult AcceptToMemoryPool(CChainState& active_chainstate, CTxMemPool& pool, const CTransactionRef& tx,
                                        bool bypass_limits, bool test_accept=false) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+/**
+* Atomically test acceptance of multiple transactions.
+* @returns a vector of MempoolAcceptResults for each tx in the same order as
+* the input txns. If one transaction fails, some results may be unfinished.
+*/
+std::vector<MempoolAcceptResult> ProcessNewPackage(CChainState& active_chainstate, CTxMemPool& pool,
+                                                   std::vector<CTransactionRef>& txns, bool test_accept)
+                                                   EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 /** Get the BIP9 state for a given deployment at the current tip. */
 ThresholdState VersionBitsTipState(const Consensus::Params& params, Consensus::DeploymentPos pos);
