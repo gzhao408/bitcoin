@@ -230,9 +230,8 @@ BOOST_AUTO_TEST_CASE(tx_valid)
                 BOOST_ERROR("Bad test flags: " << strTest);
             }
 
-            if (!CheckTxScripts(tx, mapprevOutScriptPubKeys, mapprevOutValues, ~verify_flags, txdata, strTest, /* expect_valid */ true)) {
-                BOOST_ERROR("Tx unexpectedly failed: " << strTest);
-            }
+            BOOST_CHECK_MESSAGE(CheckTxScripts(tx, mapprevOutScriptPubKeys, mapprevOutValues, ~verify_flags, txdata, strTest, /* expect_valid */ true),
+                                "Tx unexpectedly failed: " << strTest);
 
             // Backwards compatibility of script verification flags: Removing any flag(s) should not invalidate a valid transaction
             for (size_t i = 0; i < mapFlagNames.size(); ++i) {
@@ -249,7 +248,7 @@ BOOST_AUTO_TEST_CASE(tx_valid)
             }
 
             // Check that flags are maximal: transaction should fail if any unset flags are set.
-            for (auto flags_excluding_one: ExcludeIndividualFlags(verify_flags)) {
+            for (auto flags_excluding_one : ExcludeIndividualFlags(verify_flags)) {
                 if (!CheckTxScripts(tx, mapprevOutScriptPubKeys, mapprevOutValues, ~flags_excluding_one, txdata, strTest, /* expect_valid */ false)) {
                     BOOST_ERROR("Too many flags unset: " << strTest);
                 }
@@ -316,10 +315,14 @@ BOOST_AUTO_TEST_CASE(tx_invalid)
             PrecomputedTransactionData txdata(tx);
             unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
 
-            // Not using FillFlags() in the main test, in order to detect invalid verifyFlags combination
-            if (!CheckTxScripts(tx, mapprevOutScriptPubKeys, mapprevOutValues, verify_flags, txdata, strTest, /* expect_valid */ false)) {
-                BOOST_ERROR("Tx unexpectedly passed: " << strTest);
+            // Check that the test gives a valid combination of flags (otherwise VerifyScript will throw). Don't edit the flags.
+            if (verify_flags != FillFlags(verify_flags)) {
+                BOOST_ERROR("Bad test flags: " << strTest);
             }
+
+            // Not using FillFlags() in the main test, in order to detect invalid verifyFlags combination
+            BOOST_CHECK_MESSAGE(CheckTxScripts(tx, mapprevOutScriptPubKeys, mapprevOutValues, verify_flags, txdata, strTest, /* expect_valid */ false),
+                                "Tx unexpectedly passed: " << strTest);
 
             // Backwards compatibility of script verification flags: Adding any flag(s) should not validate an invalid transaction
             for (size_t i = 0; i < mapFlagNames.size(); i++) {
@@ -336,7 +339,7 @@ BOOST_AUTO_TEST_CASE(tx_invalid)
             }
 
             // Check that flags are minimal: transaction should succeed if any set flags are unset.
-            for (auto flags_excluding_one: ExcludeIndividualFlags(verify_flags)) {
+            for (auto flags_excluding_one : ExcludeIndividualFlags(verify_flags)) {
                 if (!CheckTxScripts(tx, mapprevOutScriptPubKeys, mapprevOutValues, flags_excluding_one, txdata, strTest, /* expect_valid */ true)) {
                     BOOST_ERROR("Too many flags set: " << strTest);
                 }
