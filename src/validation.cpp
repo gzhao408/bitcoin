@@ -46,6 +46,7 @@
 #include <util/rbf.h>
 #include <util/strencodings.h>
 #include <util/system.h>
+#include <util/time.h>
 #include <util/translation.h>
 #include <validationinterface.h>
 #include <warnings.h>
@@ -1116,7 +1117,11 @@ MempoolAcceptResult AcceptToMemoryPool(CChainState& active_chainstate, CTxMemPoo
                                        bool bypass_limits, bool test_accept)
 {
     assert(std::addressof(::ChainstateActive()) == std::addressof(active_chainstate));
-    return AcceptToMemoryPoolWithTime(Params(), pool, active_chainstate, tx, GetTime(), bypass_limits, test_accept);
+    int64_t start = GetTimeMicros();
+    MempoolAcceptResult res = AcceptToMemoryPoolWithTime(Params(), pool, active_chainstate, tx, GetTime(), bypass_limits, test_accept);
+    int64_t end = GetTimeMicros();
+    LogPrintf("\n@@@@@@@ @@@@ @@@@@@@ ATMP TIMER = [%d] @@@@@ @@@@ @@@@@@@\n", end - start);
+    return res;
 }
 
 CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const uint256& hash, const Consensus::Params& consensusParams, uint256& hashBlock)
@@ -1506,6 +1511,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
     hasher.Write(tx.GetWitnessHash().begin(), 32).Write((unsigned char*)&flags, sizeof(flags)).Finalize(hashCacheEntry.begin());
     AssertLockHeld(cs_main); //TODO: Remove this requirement by making CuckooCache not require external locks
     if (g_scriptExecutionCache.contains(hashCacheEntry, !cacheFullScriptStore)) {
+        LogPrintf("\n@@@@@@@@@@@@@@ script cache hit @@@@@@@@@@@@\n");
         return true;
     }
 
