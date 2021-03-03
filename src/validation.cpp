@@ -1262,6 +1262,61 @@ std::vector<MempoolAcceptResult> MemPoolAccept::AcceptMultipleTransactions(std::
 
 } // anon namespace
 
+// this is pseudocode, I'm not good enough at C++ to naturally write
+// compiling code yet :(
+// functor so you can just call if (PackageSanitizer(transactions)())
+// This is basically a Disjoint Set Union algorithm
+class PackageSanitizer {
+private:
+	std::vector<CTransaction> transactions;
+    /** Map from each txid to the txid of its oldest known member in the family
+    * (not necessarily a direct ancestor, could be a co-parent type of relationship). */
+	std::map<uint256&, uint256&> oldest_ancestors;
+    // Walk up the oldest_ancestor tree until you reach the root, which would be
+    // a tx whose oldest ancestor is itself.
+	uint256& find_oldest(uint256& tx) {
+		uint256& result = oldest_ancestors[tx];
+		while (result != oldest_ancestors[result]) {
+			result = oldest_ancestors[result];
+		}
+        return result
+	}
+public:
+	// Constructor
+    // don't std::move so the caller can keep using them
+	PackageSanitizer(std::vector<CTransaction>& txns_in) {
+		transactions = txns_in;
+        // Every transaction's oldest known ancestor starts out as itself.
+		for (auto tx : transactions) oldest_ancestors.emplace(tx, tx);
+	}
+	/** Tells you whether transactions is a valid package.
+    * A valid package is defined as a set of transactions where every transaction has
+    * a parent-child relationship with at least one other transaction in the set, and
+    * is ordered such that parents always come before children.
+    */
+	bool operator()() {
+		auto mainit = transactions.begin();
+		while (mainit != transactions.end()) {
+			CTransaction tx = mainit.second;
+			for (auto input : tx.vin) {
+				const uint256& parent = input.prevout.txid;
+				if (std::find(transactions.begin(), mainit, parent)) {
+					const uint256& parent_oldest = find_oldest(parent);
+					const uint256& child_oldest = find_oldest(tx.GetHash());
+					oldest_ancestors[child_oldest] = oldest_ancestors[parent];
+				}
+				if (std::find(mainit, transactions.end(), parent) {
+					// It is preceding its parent.
+					return false;
+				}
+			}
+            ++mainit; // proceed to next transaction
+		}
+        // This is all 1 package if every transaction has the same oldest ancestor.
+		return std::all_of(oldest_ancestors, [](uint256& anc){ anc == package[0].GetHash() });
+	}
+}
+
 /** (try to) add transaction to memory pool with a specified acceptance time **/
 static MempoolAcceptResult AcceptToMemoryPoolWithTime(const CChainParams& chainparams, CTxMemPool& pool,
                                                       CChainState& active_chainstate,
